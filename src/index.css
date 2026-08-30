@@ -1,0 +1,86 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Noto+Sans+Devanagari:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import 'tailwindcss';
+
+@theme {
+  --color-gov-navy: #1B3A6B;
+  --color-gov-navy-dark: #0F2244;
+  --color-gov-navy-light: #2A5298;
+  --color-gov-blue-50: #EEF2F9;
+  --color-gov-blue-100: #D6E0F2;
+  --color-gov-green: #15803D;
+  --color-gov-green-light: #DCFCE7;
+  --color-gov-amber: #D97706;
+  --color-gov-amber-light: #FEF3C7;
+  --color-gov-orange: #EA580C;
+  --color-gov-orange-light: #FFEDD5;
+  --color-gov-red: #DC2626;
+  --color-gov-red-light: #FEE2E2;
+  --color-gov-gray-50: #F7F8FA;
+  --color-gov-gray-100: #F0F1F4;
+  --color-gov-gray-200: #E2E5EA;
+  --color-gov-gray-300: #C8CDD6;
+  --color-gov-gray-400: #9AA3B0;
+  --color-gov-gray-500: #6B7480;
+  --color-gov-gray-700: #3A4050;
+  --color-gov-gray-900: #1A1D23;
+}
+
+html, body, #root {
+  height: 100%;
+  font-family: 'Noto Sans', system-ui, sans-serif;
+}
+
+body {
+  background-color: #F7F8FA;
+  color: #1A1D23;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #F0F1F4; }
+::-webkit-scrollbar-thumb { background: #C8CDD6; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #9AA3B0; }
+
+/* Government table styles */
+.gov-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.gov-table th {
+  background: #F0F1F4;
+  color: #3A4050;
+  font-weight: 600;
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 2px solid #D0D5DD;
+  white-space: nowrap;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.gov-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #E2E5EA;
+  color: #1A1D23;
+  vertical-align: middle;
+}
+.gov-table tr:hover td {
+  background: #F7F8FA;
+}
+
+/* Focus states */
+button:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid #1B3A6B;
+  outline-offset: 2px;
+}
+
+/* Mono font for data */
+.mono { font-family: 'JetBrains Mono', monospace; }
+
+/* Hindi font */
+.devanagari { font-family: 'Noto Sans Devanagari', sans-serif; }
