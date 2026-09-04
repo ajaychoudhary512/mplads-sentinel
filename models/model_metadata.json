@@ -1,0 +1,46 @@
+{
+  "model_version": "1.2.0",
+  "last_run": "2026-09-04T20:44:28.339257",
+  "algorithm": "Isolation Forest + LOF + Deterministic Rules",
+  "training_rows": 30,
+  "features_used": [
+    "recommended_amount",
+    "effective_sanction_amount",
+    "expenditure_amount",
+    "allocated_amount",
+    "utilization_pct",
+    "cost_overrun_amount",
+    "cost_deviation_pct",
+    "remaining_sanction_amount",
+    "recommendation_to_sanction_days",
+    "sanction_to_expenditure_days",
+    "project_duration_days",
+    "allocation_utilization_pct",
+    "mp_total_projects",
+    "mp_total_sanction_amount",
+    "mp_total_expenditure_amount",
+    "mp_utilization_pct",
+    "category_median_sanction",
+    "cost_vs_category_median_pct",
+    "vendor_project_count",
+    "vendor_total_payment",
+    "vendor_average_payment",
+    "vendor_mp_count",
+    "vendor_state_count",
+    "vendor_payment_share_pct",
+    "expenditure_transaction_count",
+    "calamity_count",
+    "calamity_consent_amount"
+  ],
+  "feature_count": 27,
+  "contamination": 0.05,
+  "weights": {
+    "ml_weight": 0.6,
+    "rule_weight": 0.4
+  },
+  "thresholds": {
+    "low_max": 24.99,
+    "medium_max": 49.99,
+    "high_max": 74.99
+  }
+}

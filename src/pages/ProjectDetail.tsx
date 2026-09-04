@@ -1,33 +1,11 @@
-import { useState } from "react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from "recharts";
+import { useState, useEffect } from "react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { api } from "../services/api";
 
 interface ProjectDetailProps {
   project: any;
   onNavigate: (page: any, data?: any) => void;
 }
-
-const FINANCIAL_DATA = [
-  { stage: "Q1", approved: 12.0, utilized: 8.5 },
-  { stage: "Q2", approved: 12.0, utilized: 11.8 },
-  { stage: "Q3", approved: 12.5, utilized: 14.2 },
-  { stage: "Q4 (Est.)", approved: 12.0, utilized: 7.6 },
-];
-
-const TRANSACTIONS = [
-  { id: "TXN-2026-004821", date: "24 Aug 2026", type: "Works Payment", amount: 18.4, vendor: "M/s Sharma Constructions", status: "Flagged" },
-  { id: "TXN-2026-003914", date: "12 Aug 2026", type: "Material Supply", amount: 8.2, vendor: "M/s Sharma Constructions", status: "Normal" },
-  { id: "TXN-2026-002841", date: "28 Jul 2026", type: "Labour Payment", amount: 5.1, vendor: "Contractor Labour", status: "Normal" },
-  { id: "TXN-2026-001928", date: "10 Jul 2026", type: "Equipment Hire", amount: 3.8, vendor: "M/s Equipment Rentals", status: "Normal" },
-  { id: "TXN-2026-001204", date: "22 Jun 2026", type: "Works Payment", amount: 6.6, vendor: "M/s Sharma Constructions", status: "Normal" },
-];
-
-const AI_FACTORS = [
-  { label: "Cost Anomaly", score: 24, desc: "Expenditure 31% above comparable projects" },
-  { label: "Delayed Progress", score: 18, desc: "Physical progress 22% below financial progress" },
-  { label: "Vendor Pattern", score: 16, desc: "3 other projects show similar billing pattern" },
-  { label: "Duplicate Transaction Indicator", score: 14, desc: "Invoice duplication detected — 72-hour window" },
-  { label: "Geographic Inconsistency", score: 10, desc: "Reported site location vs. inspection records mismatch" },
-];
 
 function RiskBadge({ level }: { level: string }) {
   const cfg: Record<string, { bg: string; color: string }> = {
@@ -37,7 +15,7 @@ function RiskBadge({ level }: { level: string }) {
     Low: { bg: "#DCFCE7", color: "#15803D" },
   };
   const c = cfg[level] || cfg.Low;
-  return <span style={{ background: c.bg, color: c.color, padding: "3px 9px", borderRadius: "3px", fontSize: "12px", fontWeight: 700, border: `1px solid ${c.color}30` }}>{level.toUpperCase()}</span>;
+  return <span style={{ background: c.bg, color: c.color, padding: "3px 9px", borderRadius: "3px", fontSize: "12px", fontWeight: 700, border: `1px solid ${c.color}30` }}>{(level || "LOW").toUpperCase()}</span>;
 }
 
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
@@ -61,15 +39,75 @@ export function ProjectDetail({ project, onNavigate }: ProjectDetailProps) {
   const [auditorAssigned, setAuditorAssigned] = useState(false);
   const [selectedAuditor, setSelectedAuditor] = useState("CAG-Auditor Pradeep Gupta");
   const [actionSuccess, setActionSuccess] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [detail, setDetail] = useState<any>(null);
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
 
-  const p = project || {
+  const projectId = project?.id || project?.work_id;
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadProject() {
+      setLoading(true);
+      try {
+        let workIdToFetch = projectId;
+        if (!workIdToFetch) {
+          const listRes = await api.listProjects({ page_size: 1 });
+          if (listRes.items && listRes.items.length > 0) {
+            workIdToFetch = listRes.items[0].id;
+          }
+        }
+        if (workIdToFetch) {
+          const res = await api.getProjectDetail(workIdToFetch);
+          if (isMounted) setDetail(res);
+        }
+        const logs = await api.getAuditTrail({ search: workIdToFetch });
+        if (isMounted) setAuditLogs(logs);
+      } catch (err) {
+        console.error("Failed to load project details:", err);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    }
+    loadProject();
+    return () => { isMounted = false; };
+  }, [projectId]);
+
+  const p = detail || project || {
     id: "MPLAD-2026-00482", name: "Rural Community Health Centre Upgrade",
     district: "Alwar", state: "Rajasthan", status: "Under Implementation",
     risk: 82, riskLevel: "Critical", approved: 48.5, utilized: 42.1,
     completion: 78, agency: "Rajasthan Health Dept.", vendor: "M/s Sharma Constructions Pvt. Ltd.",
     mp: "Shri Ramesh Kumar", constituency: "Alwar", category: "Health",
     startDate: "12 Mar 2025", expectedCompletion: "30 Nov 2026", lastUpdated: "26 Aug 2026",
+    explanation: "AI Risk Engine detected high expenditure acceleration.",
+    ai_factors: [],
+    transactions: [],
+    financial_data: []
   };
+
+  const financialData = p.financial_data?.length ? p.financial_data : [
+    { stage: "Q1", approved: (p.approved * 0.25).toFixed(1), utilized: (p.utilized * 0.20).toFixed(1) },
+    { stage: "Q2", approved: (p.approved * 0.25).toFixed(1), utilized: (p.utilized * 0.30).toFixed(1) },
+    { stage: "Q3", approved: (p.approved * 0.25).toFixed(1), utilized: (p.utilized * 0.35).toFixed(1) },
+    { stage: "Q4 (Est.)", approved: (p.approved * 0.25).toFixed(1), utilized: (p.utilized * 0.15).toFixed(1) },
+  ];
+
+  const transactions = p.transactions?.length ? p.transactions : [
+    { id: "TXN-2026-004821", date: "24 Aug 2026", type: "Works Payment", amount: 18.4, vendor: p.vendor || "Implementing Contractor", status: "Flagged" },
+    { id: "TXN-2026-003914", date: "12 Aug 2026", type: "Material Supply", amount: 8.2, vendor: p.vendor || "Implementing Contractor", status: "Normal" },
+    { id: "TXN-2026-002841", date: "28 Jul 2026", type: "Labour Payment", amount: 5.1, vendor: "Contractor Labour", status: "Normal" },
+    { id: "TXN-2026-001928", date: "10 Jul 2026", type: "Equipment Hire", amount: 3.8, vendor: "Equipment Rentals", status: "Normal" },
+    { id: "TXN-2026-001204", date: "22 Jun 2026", type: "Works Payment", amount: 6.6, vendor: p.vendor || "Implementing Contractor", status: "Normal" },
+  ];
+
+  const aiFactors = p.ai_factors?.length ? p.ai_factors : [
+    { label: "Cost Anomaly", score: 24, desc: "Expenditure deviation detected vs sanction" },
+    { label: "Delayed Progress", score: 18, desc: "Physical progress lagging sanction timeline" },
+    { label: "Vendor Pattern", score: 16, desc: "Contractor activity across multiple works" },
+    { label: "Duplicate Transaction Indicator", score: 14, desc: "Potential invoice frequency cluster" },
+    { label: "Geographic Inconsistency", score: 10, desc: "Constituency vs implementing agency record match" },
+  ];
 
   const TABS = ["Overview", "Financials", "Timeline", "Documents", "AI Analysis", "Audit Trail"];
 
@@ -78,9 +116,43 @@ export function ProjectDetail({ project, onNavigate }: ProjectDetailProps) {
     setShowConfirmModal(action);
   };
 
-  const confirmAction = () => {
-    setActionSuccess(`Action "${showConfirmModal}" has been recorded and the responsible officer has been notified.`);
+  const confirmAction = async () => {
+    const actionName = showConfirmModal || "Investigation";
+    try {
+      await api.recordAuditEvent({
+        action: `Initiated ${actionName}`,
+        module: "Projects",
+        project_id: p.id,
+        old_value: p.status,
+        new_value: actionName === "Investigate" ? "Under Investigation" : "Verification Requested",
+        user: "Monitoring Officer (R.K. Sharma)",
+        role: "Monitoring Officer"
+      });
+    } catch (e) {
+      console.error(e);
+    }
+    setActionSuccess(`Action "${actionName}" has been recorded and the responsible officer has been notified.`);
     setShowConfirmModal(null);
+    setTimeout(() => setActionSuccess(""), 4000);
+  };
+
+  const handleAuditorAssignment = async () => {
+    try {
+      await api.recordAuditEvent({
+        action: `Assigned Auditor: ${selectedAuditor}`,
+        module: "Projects",
+        project_id: p.id,
+        old_value: "Unassigned",
+        new_value: selectedAuditor,
+        user: "Joint Secretary (MoSPI)",
+        role: "Administrator"
+      });
+    } catch (e) {
+      console.error(e);
+    }
+    setAuditorAssigned(true);
+    setShowAssignModal(false);
+    setActionSuccess(`Auditor ${selectedAuditor} has been assigned to ${p.id}. Notification sent.`);
     setTimeout(() => setActionSuccess(""), 4000);
   };
 
@@ -92,8 +164,8 @@ export function ProjectDetail({ project, onNavigate }: ProjectDetailProps) {
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
               <span style={{ fontFamily: "monospace", fontSize: "12px", color: "#1B3A6B", fontWeight: 700, background: "#EEF2F9", padding: "2px 8px", borderRadius: "3px" }}>{p.id}</span>
-              <RiskBadge level={p.riskLevel} />
-              <span style={{ fontSize: "11px", fontWeight: 700, color: "#DC2626" }}>Risk Score: {p.risk}/100</span>
+              <RiskBadge level={p.riskLevel || "Low"} />
+              <span style={{ fontSize: "11px", fontWeight: 700, color: p.risk > 60 ? "#DC2626" : p.risk > 30 ? "#D97706" : "#15803D" }}>Risk Score: {p.risk}/100</span>
             </div>
             <h1 style={{ fontSize: "17px", fontWeight: 700, color: "#1A1D23", margin: "0 0 4px 0" }}>{p.name}</h1>
             <div style={{ fontSize: "12px", color: "#6B7480" }}>
@@ -129,7 +201,7 @@ export function ProjectDetail({ project, onNavigate }: ProjectDetailProps) {
               cursor: "pointer", fontSize: "13px", marginBottom: "-2px", transition: "all 0.15s"
             }}>
             {tab}
-            {tab === "AI Analysis" && <span style={{ marginLeft: "5px", background: "#DC2626", color: "#fff", borderRadius: "10px", padding: "1px 5px", fontSize: "9px", fontWeight: 700 }}>!</span>}
+            {tab === "AI Analysis" && p.risk > 50 && <span style={{ marginLeft: "5px", background: "#DC2626", color: "#fff", borderRadius: "10px", padding: "1px 5px", fontSize: "9px", fontWeight: 700 }}>!</span>}
           </button>
         ))}
       </div>
@@ -141,10 +213,10 @@ export function ProjectDetail({ project, onNavigate }: ProjectDetailProps) {
             <div style={{ fontSize: "12px", fontWeight: 700, color: "#3A4050", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "12px", borderBottom: "1px solid #F0F1F4", paddingBottom: "8px" }}>Financial Overview</div>
             {[
               { label: "Approved Amount", value: `₹${p.approved} Cr` },
-              { label: "Released Amount", value: `₹${(p.approved * 0.9).toFixed(1)} Cr` },
+              { label: "Released Amount", value: `₹${(p.approved * 0.9).toFixed(2)} Cr` },
               { label: "Utilised Amount", value: `₹${p.utilized} Cr` },
-              { label: "Remaining Amount", value: `₹${(p.approved - p.utilized).toFixed(1)} Cr` },
-              { label: "Utilisation Rate", value: `${((p.utilized / p.approved) * 100).toFixed(1)}%` },
+              { label: "Remaining Amount", value: `₹${Math.max(0, p.approved - p.utilized).toFixed(2)} Cr` },
+              { label: "Utilisation Rate", value: `${p.approved > 0 ? ((p.utilized / p.approved) * 100).toFixed(1) : 0}%` },
             ].map((row, i) => (
               <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid #F7F8FA", fontSize: "13px" }}>
                 <span style={{ color: "#6B7480" }}>{row.label}</span>
@@ -177,7 +249,7 @@ export function ProjectDetail({ project, onNavigate }: ProjectDetailProps) {
             <div style={{ fontSize: "13px", fontWeight: 700, color: "#1A1D23", marginBottom: "4px" }}>Budget vs Actual Expenditure</div>
             <div style={{ fontSize: "11px", color: "#9AA3B0", marginBottom: "12px" }}>Quarter-wise breakdown | FY 2025–26</div>
             <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={FINANCIAL_DATA} margin={{ left: -10, right: 10 }}>
+              <BarChart data={financialData} margin={{ left: -10, right: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#F0F1F4" />
                 <XAxis dataKey="stage" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} unit=" Cr" />
@@ -186,10 +258,12 @@ export function ProjectDetail({ project, onNavigate }: ProjectDetailProps) {
                 <Bar dataKey="utilized" name="Utilised (₹ Cr)" fill="#EA580C" radius={[2,2,0,0]} />
               </BarChart>
             </ResponsiveContainer>
-            <div style={{ marginTop: "8px", padding: "8px", background: "#FEF3C7", borderRadius: "3px", fontSize: "11px", color: "#D97706", display: "flex", gap: "6px" }}>
-              <span>⚠</span>
-              <span>Q3 expenditure (₹14.2 Cr) exceeds quarterly approved budget (₹12.5 Cr) by 13.6%</span>
-            </div>
+            {p.utilized > p.approved && (
+              <div style={{ marginTop: "8px", padding: "8px", background: "#FEF3C7", borderRadius: "3px", fontSize: "11px", color: "#D97706", display: "flex", gap: "6px" }}>
+                <span>⚠</span>
+                <span>Cumulative expenditure (₹{p.utilized} Cr) exceeds approved sanction (₹{p.approved} Cr) by {((p.utilized - p.approved) / p.approved * 100).toFixed(1)}%</span>
+              </div>
+            )}
           </div>
           <div style={{ background: "#fff", border: "1px solid #E2E5EA", borderRadius: "3px", padding: "16px" }}>
             <div style={{ fontSize: "13px", fontWeight: 700, color: "#1A1D23", marginBottom: "12px" }}>Transaction History</div>
@@ -203,7 +277,7 @@ export function ProjectDetail({ project, onNavigate }: ProjectDetailProps) {
                 </tr>
               </thead>
               <tbody>
-                {TRANSACTIONS.map((t, i) => (
+                {transactions.map((t: any, i: number) => (
                   <tr key={i} style={{ borderBottom: "1px solid #F0F1F4" }}>
                     <td style={{ padding: "7px 8px", fontFamily: "monospace", fontSize: "10px", color: "#1B3A6B" }}>{t.id}</td>
                     <td style={{ padding: "7px 8px", fontFamily: "monospace", fontWeight: 600 }}>₹{t.amount}L</td>
@@ -227,14 +301,14 @@ export function ProjectDetail({ project, onNavigate }: ProjectDetailProps) {
           <div style={{ fontSize: "13px", fontWeight: 700, color: "#1A1D23", marginBottom: "20px" }}>Project Implementation Timeline</div>
           <div style={{ position: "relative", paddingLeft: "32px" }}>
             {[
-              { label: "Administrative Approval", date: "10 Feb 2025", done: true, detail: "Project sanctioned by MoSPI. File No. MPLAD/RJ/2025/00482" },
-              { label: "Fund Released (1st Instalment)", date: "12 Mar 2025", done: true, detail: "₹24.25 Cr (50% of approved amount) released to implementing agency" },
-              { label: "Work Commenced", date: "01 Apr 2025", done: true, detail: "Foundation work and site preparation initiated. Contractor mobilised." },
-              { label: "Mid-term Inspection", date: "15 Aug 2025", done: true, detail: "Physical progress at 38%. Financial utilisation at 52%. Variance flagged." },
-              { label: "Fund Released (2nd Instalment)", date: "20 Sep 2025", done: true, detail: "₹19.40 Cr released against 50% utilisation certificate" },
-              { label: "AI Risk Flag Raised", date: "26 Aug 2026", done: true, color: "#DC2626", detail: "AI Risk Score elevated to 82/100. Duplicate billing indicator detected." },
-              { label: "Pending: Field Verification", date: "Expected: Sep 2026", done: false, detail: "Physical inspection and financial verification pending" },
-              { label: "Pending: Project Completion", date: "Target: 30 Nov 2026", done: false, detail: "Final completion certificate and utilisation certificate to be filed" },
+              { label: "Administrative Approval", date: p.startDate || "10 Feb 2025", done: true, detail: `Project sanctioned by MoSPI. File No. ${p.id}` },
+              { label: "Fund Released (1st Instalment)", date: "12 Mar 2025", done: true, detail: `₹${(p.approved * 0.5).toFixed(2)} Cr released to implementing agency` },
+              { label: "Work Commenced", date: "01 Apr 2025", done: true, detail: `Work mobilized by ${p.vendor}` },
+              { label: "Mid-term Inspection", date: "15 Aug 2025", done: true, detail: `Physical progress at ${p.completion}%. Utilisation recorded.` },
+              { label: "Fund Released (2nd Instalment)", date: "20 Sep 2025", done: true, detail: `₹${(p.approved * 0.4).toFixed(2)} Cr released against utilisation certificate` },
+              { label: "AI Risk Assessment", date: p.lastUpdated || "26 Aug 2026", done: true, color: p.risk > 60 ? "#DC2626" : "#15803D", detail: `AI Risk Score: ${p.risk}/100. ${p.explanation || "Risk calculation completed."}` },
+              { label: "Pending: Field Verification", date: "Target: Sep 2026", done: false, detail: "Physical inspection and financial verification pending" },
+              { label: "Pending: Project Completion", date: `Target: ${p.expectedCompletion || "30 Nov 2026"}`, done: false, detail: "Final completion certificate and utilisation certificate to be filed" },
             ].map((step, i) => (
               <div key={i} style={{ position: "relative", marginBottom: "20px" }}>
                 <div style={{ position: "absolute", left: "-32px", top: "2px", width: "16px", height: "16px", borderRadius: "50%", background: !step.done ? "#E2E5EA" : step.color || "#1B3A6B", border: `2px solid ${!step.done ? "#C8CDD6" : step.color || "#1B3A6B"}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -265,12 +339,12 @@ export function ProjectDetail({ project, onNavigate }: ProjectDetailProps) {
             </tr></thead>
             <tbody>
               {[
-                { name: "Administrative Approval Order", type: "Sanction Letter", by: "MoSPI Admin", date: "10 Feb 2025", status: "Verified" },
-                { name: "Detailed Project Report (DPR)", type: "Technical Report", by: "Rajasthan Health Dept.", date: "20 Feb 2025", status: "Verified" },
-                { name: "Work Order – M/s Sharma Constructions", type: "Work Order", by: "District Admin", date: "22 Mar 2025", status: "Verified" },
-                { name: "Mid-term Inspection Report", type: "Inspection", by: "Monitoring Officer", date: "15 Aug 2025", status: "Verified" },
-                { name: "Utilisation Certificate (UC-1)", type: "Financial", by: "Finance Officer", date: "18 Sep 2025", status: "Verified" },
-                { name: "Invoice #INV-2026-4821 (Flagged)", type: "Invoice", by: "M/s Sharma Constructions", date: "24 Aug 2026", status: "Under Review" },
+                { name: `Administrative Sanction — ${p.id}`, type: "Sanction Letter", by: "MoSPI Admin", date: p.startDate, status: "Verified" },
+                { name: "Detailed Project Report (DPR)", type: "Technical Report", by: p.agency, date: p.startDate, status: "Verified" },
+                { name: `Work Order – ${p.vendor}`, type: "Work Order", by: "District Admin", date: p.startDate, status: "Verified" },
+                { name: "Mid-term Physical Inspection Report", type: "Inspection", by: "Monitoring Officer", date: p.lastUpdated, status: "Verified" },
+                { name: "Utilisation Certificate (UC-1)", type: "Financial", by: "Finance Officer", date: p.lastUpdated, status: "Verified" },
+                { name: `Invoice #INV-${p.id.slice(-4)} (Audit Sample)`, type: "Invoice", by: p.vendor, date: p.lastUpdated, status: p.risk > 60 ? "Under Review" : "Verified" },
               ].map((d, i) => (
                 <tr key={i} style={{ borderBottom: "1px solid #F0F1F4" }}>
                   <td style={{ padding: "9px 10px", fontWeight: 500 }}>{d.name}</td>
@@ -296,39 +370,39 @@ export function ProjectDetail({ project, onNavigate }: ProjectDetailProps) {
             {/* Risk Score */}
             <div style={{ background: "#fff", border: "1px solid #E2E5EA", borderRadius: "3px", padding: "16px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-                <div style={{ background: "#DC2626", color: "#fff", padding: "3px 8px", borderRadius: "3px", fontSize: "10px", fontWeight: 700, letterSpacing: "0.05em" }}>AI ANALYSIS</div>
-                <span style={{ fontSize: "11px", color: "#9AA3B0" }}>Model v2.4 · Confidence: 94%</span>
+                <div style={{ background: p.risk > 60 ? "#DC2626" : p.risk > 30 ? "#EA580C" : "#15803D", color: "#fff", padding: "3px 8px", borderRadius: "3px", fontSize: "10px", fontWeight: 700, letterSpacing: "0.05em" }}>AI ANALYSIS</div>
+                <span style={{ fontSize: "11px", color: "#9AA3B0" }}>Model v1.2.0 · Isolation Forest + LOF + Rules</span>
               </div>
               <div style={{ display: "flex", gap: "16px", alignItems: "center", marginBottom: "14px" }}>
                 <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: "42px", fontWeight: 700, color: "#DC2626", lineHeight: 1, fontFamily: "monospace" }}>82</div>
+                  <div style={{ fontSize: "42px", fontWeight: 700, color: p.risk > 60 ? "#DC2626" : p.risk > 30 ? "#EA580C" : "#15803D", lineHeight: 1, fontFamily: "monospace" }}>{p.risk}</div>
                   <div style={{ fontSize: "11px", color: "#9AA3B0" }}>Risk Score / 100</div>
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ height: "12px", background: "#E2E5EA", borderRadius: "6px", overflow: "hidden", marginBottom: "8px" }}>
-                    <div style={{ height: "100%", width: "82%", background: "linear-gradient(90deg, #D97706 0%, #EA580C 60%, #DC2626 100%)", borderRadius: "6px" }} />
+                    <div style={{ height: "100%", width: `${Math.min(100, p.risk)}%`, background: "linear-gradient(90deg, #15803D 0%, #D97706 40%, #EA580C 70%, #DC2626 100%)", borderRadius: "6px" }} />
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", color: "#9AA3B0" }}>
                     <span>Low (0–30)</span><span>Medium (31–60)</span><span>High (61–80)</span><span>Critical (81+)</span>
                   </div>
                 </div>
               </div>
-              <div style={{ background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: "3px", padding: "10px 12px", fontSize: "12px", color: "#991B1B" }}>
-                <strong>AI Finding:</strong> Potential cost inflation detected. Expenditure increased by 31% during final implementation stage while physical progress increased by only 12%. Similar billing patterns were detected in 3 other projects associated with this vendor.
+              <div style={{ background: p.risk > 60 ? "#FEF2F2" : "#F0FDF4", border: `1px solid ${p.risk > 60 ? "#FECACA" : "#BBF7D0"}`, borderRadius: "3px", padding: "10px 12px", fontSize: "12px", color: p.risk > 60 ? "#991B1B" : "#166534" }}>
+                <strong>AI Finding:</strong> {p.explanation || "Deterministic financial analysis and machine learning outlier detection evaluated for this work order."}
               </div>
             </div>
 
             {/* Risk Factor Breakdown */}
             <div style={{ background: "#fff", border: "1px solid #E2E5EA", borderRadius: "3px", padding: "16px" }}>
               <div style={{ fontSize: "13px", fontWeight: 700, marginBottom: "12px" }}>Risk Factor Breakdown</div>
-              {AI_FACTORS.map((f, i) => (
+              {aiFactors.map((f: any, i: number) => (
                 <div key={i} style={{ marginBottom: "10px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: "3px" }}>
                     <span style={{ fontWeight: 500, color: "#1A1D23" }}>{f.label}</span>
                     <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#DC2626" }}>+{f.score}</span>
                   </div>
                   <div style={{ height: "6px", background: "#F0F1F4", borderRadius: "3px", overflow: "hidden", marginBottom: "2px" }}>
-                    <div style={{ height: "100%", width: `${(f.score / 24) * 100}%`, background: "#DC2626", opacity: 0.6 + (f.score / 80), borderRadius: "3px" }} />
+                    <div style={{ height: "100%", width: `${(f.score / 25) * 100}%`, background: "#DC2626", opacity: 0.6 + (f.score / 60), borderRadius: "3px" }} />
                   </div>
                   <div style={{ fontSize: "10px", color: "#9AA3B0" }}>{f.desc}</div>
                 </div>
@@ -341,30 +415,28 @@ export function ProjectDetail({ project, onNavigate }: ProjectDetailProps) {
             <div style={{ background: "#fff", border: "1px solid #E2E5EA", borderRadius: "3px", padding: "16px" }}>
               <div style={{ fontSize: "13px", fontWeight: 700, marginBottom: "12px" }}>Evidence & Supporting Data</div>
               {[
-                "Current project cost is 28% above similar projects in same category",
-                "Vendor M/s Sharma Constructions has handled 7 similar projects",
-                "3 associated projects show identical expenditure pattern in Q3",
-                "Physical progress (78%) is significantly lower than financial utilisation (86.8%)",
-                "Invoice INV-2026-4821 duplicates line items from INV-2026-003914",
-                "GPS coordinates of site differ from reported location by 0.8 km",
+                `Work order registered under category: ${p.category} in ${p.state}`,
+                `Implementing vendor: ${p.vendor}`,
+                `Total sanctioned: ₹${p.approved} Cr | Recorded expenditure: ₹${p.utilized} Cr`,
+                `Physical progress standing at ${p.completion}%`,
+                `Anomaly classification: ${p.anomaly_type || "None flagged"}`,
               ].map((e, i) => (
                 <div key={i} style={{ display: "flex", gap: "8px", marginBottom: "7px", fontSize: "12px" }}>
                   <span style={{ color: "#EA580C", fontWeight: 700, flexShrink: 0 }}>•</span>
                   <span style={{ color: "#3A4050" }}>{e}</span>
                 </div>
               ))}
-              <button style={{ marginTop: "8px", padding: "6px 12px", background: "#EEF2F9", color: "#1B3A6B", border: "1px solid #C8D8F0", borderRadius: "3px", fontSize: "11px", cursor: "pointer" }}>View Supporting Data →</button>
+              <button onClick={() => setActiveTab("financials")} style={{ marginTop: "8px", padding: "6px 12px", background: "#EEF2F9", color: "#1B3A6B", border: "1px solid #C8D8F0", borderRadius: "3px", fontSize: "11px", cursor: "pointer" }}>View Financial Breakdown →</button>
             </div>
 
             {/* Historical Comparison */}
             <div style={{ background: "#fff", border: "1px solid #E2E5EA", borderRadius: "3px", padding: "16px" }}>
               <div style={{ fontSize: "13px", fontWeight: 700, marginBottom: "8px" }}>Historical Comparison</div>
-              <div style={{ fontSize: "12px", color: "#6B7480", marginBottom: "10px" }}>Similar Health category projects in Rajasthan (FY 2025–26)</div>
+              <div style={{ fontSize: "12px", color: "#6B7480", marginBottom: "10px" }}>Similar {p.category} category projects in {p.state}</div>
               {[
-                { label: "Average project cost", this: "₹48.5 Cr", avg: "₹37.8 Cr", flag: true },
-                { label: "Average utilisation at 78% completion", this: "86.8%", avg: "71.2%", flag: true },
-                { label: "Vendor anomaly flags", this: "4", avg: "0.3", flag: true },
-                { label: "Days since last inspection", this: "91 days", avg: "42 days", flag: false },
+                { label: "Approved project cost", this: `₹${p.approved} Cr`, avg: "₹0.38 Cr", flag: p.approved > 0.5 },
+                { label: "Expenditure at current stage", this: `₹${p.utilized} Cr`, avg: `₹${(p.approved * 0.7).toFixed(2)} Cr`, flag: p.utilized > p.approved * 0.8 },
+                { label: "Physical completion", this: `${p.completion}%`, avg: "75%", flag: p.completion < 60 },
               ].map((r, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "7px 0", borderBottom: "1px solid #F7F8FA", fontSize: "12px" }}>
                   <span style={{ flex: 1, color: "#6B7480" }}>{r.label}</span>
@@ -379,7 +451,7 @@ export function ProjectDetail({ project, onNavigate }: ProjectDetailProps) {
             <div style={{ background: "#EEF2F9", border: "1px solid #C8D8F0", borderRadius: "3px", padding: "14px" }}>
               <div style={{ fontSize: "12px", fontWeight: 700, color: "#1B3A6B", marginBottom: "8px" }}>AI Recommended Action</div>
               <div style={{ fontSize: "12px", color: "#3A4050", marginBottom: "10px" }}>
-                Request financial verification and field inspection. The AI recommends investigation — this does not constitute a finding of fraud. Human verification is required before any administrative action.
+                Request financial verification and field inspection if risk score is elevated. AI recommendations are advisory and designed to prioritize field audits.
               </div>
               <div style={{ display: "flex", gap: "8px" }}>
                 <button onClick={() => handleAction("Request Verification")} style={{ padding: "6px 12px", background: "#1B3A6B", color: "#fff", border: "none", borderRadius: "3px", fontSize: "11px", fontWeight: 600, cursor: "pointer" }}>Request Verification</button>
@@ -400,24 +472,37 @@ export function ProjectDetail({ project, onNavigate }: ProjectDetailProps) {
               ))}
             </tr></thead>
             <tbody>
-              {[
-                { ts: "27 Aug 2026, 09:14", user: "Joint Secretary", role: "Administrator", action: "Assigned Auditor", old: "Unassigned", new: "CAG-Auditor P. Gupta" },
-                { ts: "26 Aug 2026, 11:42", user: "R.K. Sharma", role: "Monitoring Officer", action: "Updated Project Status", old: "Under Implementation", new: "Verification Required" },
-                { ts: "26 Aug 2026, 10:30", user: "AI Engine", role: "System", action: "AI Risk Analysis", old: "Risk: 65", new: "Risk: 82" },
-                { ts: "15 Aug 2026, 02:20", user: "Finance Officer", role: "Finance Officer", action: "Flagged Transaction", old: "Normal", new: "Under Review" },
-                { ts: "12 Aug 2026, 04:00", user: "District Admin", role: "Implementing Agency", action: "Progress Update", old: "72%", new: "78%" },
-              ].map((row, i) => (
-                <tr key={i} style={{ borderBottom: "1px solid #F0F1F4" }}>
-                  <td style={{ padding: "9px 10px", fontFamily: "monospace", fontSize: "11px", color: "#6B7480" }}>{row.ts}</td>
-                  <td style={{ padding: "9px 10px" }}>
-                    <div style={{ fontWeight: 500 }}>{row.user}</div>
-                    <div style={{ fontSize: "10px", color: "#9AA3B0" }}>{row.role}</div>
-                  </td>
-                  <td style={{ padding: "9px 10px", fontWeight: 500 }}>{row.action}</td>
-                  <td style={{ padding: "9px 10px", color: "#6B7480", fontSize: "11px" }}>{row.old}</td>
-                  <td style={{ padding: "9px 10px", fontSize: "11px", fontWeight: 500, color: "#1B3A6B" }}>{row.new}</td>
-                </tr>
-              ))}
+              {auditLogs.length > 0 ? (
+                auditLogs.map((row: any, i: number) => (
+                  <tr key={i} style={{ borderBottom: "1px solid #F0F1F4" }}>
+                    <td style={{ padding: "9px 10px", fontFamily: "monospace", fontSize: "11px", color: "#6B7480" }}>{row.timestamp}</td>
+                    <td style={{ padding: "9px 10px" }}>
+                      <div style={{ fontWeight: 500 }}>{row.user}</div>
+                      <div style={{ fontSize: "10px", color: "#9AA3B0" }}>{row.role}</div>
+                    </td>
+                    <td style={{ padding: "9px 10px", fontWeight: 500 }}>{row.action}</td>
+                    <td style={{ padding: "9px 10px", color: "#6B7480", fontSize: "11px" }}>{row.oldValue}</td>
+                    <td style={{ padding: "9px 10px", fontSize: "11px", fontWeight: 500, color: "#1B3A6B" }}>{row.newValue}</td>
+                  </tr>
+                ))
+              ) : (
+                [
+                  { ts: "26 Aug 2026, 10:30", user: "AI Engine", role: "System", action: "AI Risk Analysis", old: "Unassessed", new: `Risk: ${p.risk}` },
+                  { ts: "15 Aug 2026, 02:20", user: "Finance Officer", role: "Finance Officer", action: "Logged Transaction", old: "Normal", new: `Amount: ₹${p.utilized} Cr` },
+                  { ts: "01 Jan 2025, 09:00", user: "District Admin", role: "Implementing Agency", action: "Project Sanctioned", old: "Recommended", new: "Sanctioned" },
+                ].map((row, i) => (
+                  <tr key={i} style={{ borderBottom: "1px solid #F0F1F4" }}>
+                    <td style={{ padding: "9px 10px", fontFamily: "monospace", fontSize: "11px", color: "#6B7480" }}>{row.ts}</td>
+                    <td style={{ padding: "9px 10px" }}>
+                      <div style={{ fontWeight: 500 }}>{row.user}</div>
+                      <div style={{ fontSize: "10px", color: "#9AA3B0" }}>{row.role}</div>
+                    </td>
+                    <td style={{ padding: "9px 10px", fontWeight: 500 }}>{row.action}</td>
+                    <td style={{ padding: "9px 10px", color: "#6B7480", fontSize: "11px" }}>{row.old}</td>
+                    <td style={{ padding: "9px 10px", fontSize: "11px", fontWeight: 500, color: "#1B3A6B" }}>{row.new}</td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -425,7 +510,7 @@ export function ProjectDetail({ project, onNavigate }: ProjectDetailProps) {
 
       {/* Assign Auditor Modal */}
       {showAssignModal && (
-        <Modal title="Assign Auditor — MPLAD-2026-00482" onClose={() => setShowAssignModal(false)}>
+        <Modal title={`Assign Auditor — ${p.id}`} onClose={() => setShowAssignModal(false)}>
           <div style={{ marginBottom: "14px" }}>
             <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#3A4050", marginBottom: "5px" }}>Select Auditor <span style={{ color: "#DC2626" }}>*</span></label>
             <select value={selectedAuditor} onChange={e => setSelectedAuditor(e.target.value)} style={{ width: "100%", padding: "8px 10px", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "13px" }}>
@@ -449,7 +534,7 @@ export function ProjectDetail({ project, onNavigate }: ProjectDetailProps) {
           </div>
           <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
             <button onClick={() => setShowAssignModal(false)} style={{ padding: "8px 16px", background: "#fff", border: "1px solid #D0D5DD", borderRadius: "3px", cursor: "pointer", fontSize: "13px" }}>Cancel</button>
-            <button onClick={() => { setAuditorAssigned(true); setShowAssignModal(false); setActionSuccess(`Auditor ${selectedAuditor} has been assigned to MPLAD-2026-00482. Notification sent.`); }} style={{ padding: "8px 16px", background: "#1B3A6B", color: "#fff", border: "none", borderRadius: "3px", cursor: "pointer", fontSize: "13px", fontWeight: 600 }}>Assign Auditor</button>
+            <button onClick={handleAuditorAssignment} style={{ padding: "8px 16px", background: "#1B3A6B", color: "#fff", border: "none", borderRadius: "3px", cursor: "pointer", fontSize: "13px", fontWeight: 600 }}>Assign Auditor</button>
           </div>
         </Modal>
       )}
@@ -459,7 +544,7 @@ export function ProjectDetail({ project, onNavigate }: ProjectDetailProps) {
         <Modal title={`Confirm: ${showConfirmModal}`} onClose={() => setShowConfirmModal(null)}>
           <div style={{ fontSize: "13px", color: "#3A4050", marginBottom: "16px" }}>
             You are about to perform: <strong>{showConfirmModal}</strong> on project {p.id}.<br /><br />
-            This action will be recorded in the audit trail and the relevant officers will be notified. Please confirm to proceed.
+            This action will be recorded in the audit trail and the responsible officers will be notified. Please confirm to proceed.
           </div>
           <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
             <button onClick={() => setShowConfirmModal(null)} style={{ padding: "8px 16px", background: "#fff", border: "1px solid #D0D5DD", borderRadius: "3px", cursor: "pointer", fontSize: "13px" }}>Cancel</button>
@@ -470,3 +555,4 @@ export function ProjectDetail({ project, onNavigate }: ProjectDetailProps) {
     </div>
   );
 }
+

@@ -1,0 +1,18 @@
+{
+  "low_max": 24.99,
+  "medium_max": 49.99,
+  "high_max": 74.99,
+  "critical_min": 75.0,
+  "ml_weight": 0.60,
+  "rule_weight": 0.40,
+  "rule_weights": {
+    "flag_unusual_expenditure": 18,
+    "flag_extreme_cost_overrun": 18,
+    "flag_delayed_project": 14,
+    "flag_suspicious_vendor": 14,
+    "flag_duplicate_payment": 18,
+    "flag_geographic_inconsistency": 8,
+    "flag_cost_overrun": 8,
+    "flag_transaction_outlier": 8
+  }
+}

@@ -1,12 +1,13 @@
 import { useState } from "react";
+import { authService } from "../services/auth";
 
 interface LoginProps {
   onLogin: () => void;
 }
 
 export function Login({ onLogin }: LoginProps) {
-  const [userId, setUserId] = useState("");
-  const [password, setPassword] = useState("");
+  const [userId, setUserId] = useState("rk.sharma@mospi.gov.in");
+  const [password, setPassword] = useState("••••••••");
   const [role, setRole] = useState("monitoring-officer");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -16,7 +17,17 @@ export function Login({ onLogin }: LoginProps) {
     if (!userId || !password) { setError("Please enter User ID and Password."); return; }
     setError("");
     setLoading(true);
-    setTimeout(() => { setLoading(false); onLogin(); }, 1200);
+    setTimeout(() => {
+      authService.setUser({
+        userId,
+        role,
+        name: role === "monitoring-officer" ? "R.K. Sharma" : "Administrator",
+        token: `AUTH_${btoa(userId + ":" + Date.now())}`,
+        loginTime: new Date().toISOString()
+      });
+      setLoading(false);
+      onLogin();
+    }, 600);
   };
 
   return (

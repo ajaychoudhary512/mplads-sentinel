@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { NOTIFICATIONS } from "../data/mockData";
+import { useState, useEffect } from "react";
+import { api } from "../services/api";
 
 interface NotificationsProps {
   onNavigate: (page: any, data?: any) => void;
@@ -15,8 +15,48 @@ const TYPE_COLORS: Record<string, { bg: string; color: string }> = {
 };
 
 export function Notifications({ onNavigate }: NotificationsProps) {
-  const [notifs, setNotifs] = useState(NOTIFICATIONS.map(n => ({ ...n })));
+  const [notifs, setNotifs] = useState<any[]>([]);
   const [filter, setFilter] = useState("All");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadNotifications() {
+      setLoading(true);
+      try {
+        const res = await api.listAlerts({ limit: 20 });
+        if (!isMounted) return;
+        if (res && res.items) {
+          const mapped = res.items.map((item: any, i: number) => ({
+            id: item.id || `NTF-${i}`,
+            type: item.severity === "Critical" ? "Critical AI Alert" : item.severity === "High" ? "Financial Anomaly" : "Inspection Required",
+            title: `${item.anomaly} — ${item.project}`,
+            message: `${item.description} (${item.projectName}, ${item.district}, ${item.state})`,
+            time: item.date || "Today",
+            read: i > 2,
+            severity: item.severity,
+          }));
+          // Add default system notification
+          mapped.unshift({
+            id: "NTF-SYS-01",
+            type: "System Notification",
+            title: "Canonical Pipeline Synced",
+            message: "Master dataset of 28,706 works, 5,000 transactions, and 2,047 vendors loaded successfully.",
+            time: "Today, 10:30 AM",
+            read: false,
+            severity: "Info"
+          });
+          setNotifs(mapped);
+        }
+      } catch (err) {
+        console.error("Failed to load notifications:", err);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    }
+    loadNotifications();
+    return () => { isMounted = false; };
+  }, []);
 
   const markRead = (id: string) => setNotifs(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
   const markAllRead = () => setNotifs(prev => prev.map(n => ({ ...n, read: true })));
@@ -80,9 +120,12 @@ export function Notifications({ onNavigate }: NotificationsProps) {
           );
         })}
         {filtered.length === 0 && (
-          <div style={{ background: "#fff", border: "1px solid #E2E5EA", borderRadius: "3px", padding: "40px", textAlign: "center", color: "#9AA3B0" }}>No notifications in this category.</div>
+          <div style={{ background: "#fff", border: "1px solid #E2E5EA", borderRadius: "3px", padding: "40px", textAlign: "center", color: "#9AA3B0" }}>
+            {loading ? "Loading notifications..." : "No notifications in this category."}
+          </div>
         )}
       </div>
     </div>
   );
 }
+

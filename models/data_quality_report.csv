@@ -1,0 +1,7 @@
+dataset,filename,rows,columns,duplicate_rows,missing_cells,schema_match_percent
+recommended,Works Recommended (1).csv,5001,11,0,106,100.0
+completed,Works Completed (1).csv,22001,11,0,6958,100.0
+expenditure,Expenditure on Completed and On-going Works as on Date (1).csv,5001,11,0,9,100.0
+sanctioned,Works Sanctioned (1).csv,9001,12,0,54,100.0
+allocation,Allocated Limit for Honble MPs (1).csv,544,5,0,4,100.0
+calamity,Amount consented for Calamity (1).csv,13,6,0,4,100.0

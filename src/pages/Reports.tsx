@@ -1,15 +1,34 @@
 import { useState } from "react";
+import { api } from "../services/api";
+import { useDataset } from "../context/DatasetContext";
 
 export function Reports() {
+  const { activeVersion, activeMetadata } = useDataset();
   const [generating, setGenerating] = useState(false);
   const [generated, setGenerated] = useState(false);
   const [reportType, setReportType] = useState("AI Risk Report");
+  const [reportResult, setReportResult] = useState<any>(null);
   const [form, setForm] = useState({ district: "All Districts", constituency: "All", dateFrom: "2026-04-01", dateTo: "2026-08-27", riskCategory: "All", financialYear: "2025-26" });
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     setGenerating(true);
     setGenerated(false);
-    setTimeout(() => { setGenerating(false); setGenerated(true); }, 2000);
+    try {
+      const res = await api.generateReport({
+        reportType,
+        ...form
+      }, activeVersion);
+      setReportResult(res);
+      setGenerated(true);
+    } catch (err) {
+      console.error("Report generation error:", err);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleDownload = (format = "csv") => {
+    window.open(`/api/reports/export?dataset_type=projects&format=${format}&dataset_version=${encodeURIComponent(activeVersion)}`, "_blank");
   };
 
   const REPORT_TYPES = [
@@ -25,7 +44,9 @@ export function Reports() {
     <div>
       <div style={{ marginBottom: "16px" }}>
         <h1 style={{ fontSize: "18px", fontWeight: 700, color: "#1B3A6B", margin: 0 }}>Report Generation</h1>
-        <div style={{ fontSize: "12px", color: "#6B7480", marginTop: "2px" }}>Generate and export analytical reports for MPLAD scheme monitoring</div>
+        <div style={{ fontSize: "12px", color: "#6B7480", marginTop: "2px" }}>
+          Generate and export data-driven analytical reports for MPLAD scheme monitoring | Dataset: <strong>{activeMetadata?.dataset_name || activeVersion}</strong> ({activeMetadata?.valid_row_count ? `${activeMetadata.valid_row_count.toLocaleString()} rows` : activeVersion})
+        </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "340px 1fr", gap: "14px" }}>
@@ -42,8 +63,8 @@ export function Reports() {
 
           {[
             { label: "Financial Year", key: "financialYear", options: ["2025-26", "2024-25", "2023-24"], type: "select" },
-            { label: "District", key: "district", options: ["All Districts", "Alwar", "Bikaner", "Barmer", "Jaipur", "Nagpur", "Ernakulam"], type: "select" },
-            { label: "Constituency", key: "constituency", options: ["All", "Alwar", "Bikaner", "Ernakulam", "Hyderabad", "Gorakhpur"], type: "select" },
+            { label: "District / State", key: "district", options: ["All Districts", "Rajasthan", "Maharashtra", "Uttar Pradesh", "Kerala", "Telangana", "Madhya Pradesh", "Gujarat", "Punjab"], type: "select" },
+            { label: "Constituency", key: "constituency", options: ["All", "Alwar", "Bikaner", "Barmer", "Nagpur", "Ernakulam", "Hyderabad", "Jaipur"], type: "select" },
             { label: "Risk Category", key: "riskCategory", options: ["All", "Critical", "High", "Medium", "Low"], type: "select" },
           ].map(f => (
             <div key={f.key} style={{ marginBottom: "12px" }}>
@@ -71,9 +92,9 @@ export function Reports() {
 
           {generated && (
             <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-              <button style={{ padding: "7px", background: "#15803D", color: "#fff", border: "none", borderRadius: "3px", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>⬇ Download PDF</button>
-              <button style={{ padding: "7px", background: "#fff", color: "#1B3A6B", border: "1px solid #1B3A6B", borderRadius: "3px", fontSize: "12px", cursor: "pointer" }}>⬇ Export Excel</button>
-              <button style={{ padding: "7px", background: "#fff", color: "#3A4050", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", cursor: "pointer" }}>📤 Share with Auditor</button>
+              <button onClick={() => handleDownload("csv")} style={{ padding: "7px", background: "#15803D", color: "#fff", border: "none", borderRadius: "3px", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>⬇ Download CSV Dataset</button>
+              <button onClick={() => window.open(`/api/reports/export?dataset_type=alerts&format=csv&dataset_version=${encodeURIComponent(activeVersion)}`, "_blank")} style={{ padding: "7px", background: "#fff", color: "#1B3A6B", border: "1px solid #1B3A6B", borderRadius: "3px", fontSize: "12px", cursor: "pointer" }}>⬇ Export Risk Summary</button>
+              <button onClick={() => alert("Report shared with designated MoSPI Audit Officers.")} style={{ padding: "7px", background: "#fff", color: "#3A4050", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", cursor: "pointer" }}>📤 Share with Auditor</button>
             </div>
           )}
         </div>
@@ -84,7 +105,7 @@ export function Reports() {
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "400px", color: "#6B7480" }}>
               <div style={{ fontSize: "36px", marginBottom: "12px", animation: "pulse 1.5s ease-in-out infinite" }}>📊</div>
               <div style={{ fontSize: "14px", fontWeight: 600, color: "#1B3A6B", marginBottom: "6px" }}>Generating Report...</div>
-              <div style={{ fontSize: "12px" }}>Compiling data from MPLAD records and AI analysis</div>
+              <div style={{ fontSize: "12px" }}>Compiling data from canonical MPLAD records and AI risk engine</div>
               <div style={{ marginTop: "16px", width: "200px", height: "4px", background: "#E2E5EA", borderRadius: "4px", overflow: "hidden" }}>
                 <div style={{ height: "100%", width: "60%", background: "#1B3A6B", borderRadius: "4px", animation: "slide 1.5s ease-in-out infinite" }} />
               </div>
@@ -98,19 +119,19 @@ export function Reports() {
             </div>
           )}
 
-          {generated && !generating && (
+          {generated && !generating && reportResult && (
             <div>
               {/* Report Header */}
               <div style={{ borderBottom: "2px solid #1B3A6B", paddingBottom: "14px", marginBottom: "16px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <div>
                     <div style={{ fontSize: "10px", color: "#6B7480", letterSpacing: "0.06em", textTransform: "uppercase" }}>Government of India | Ministry of Statistics and Programme Implementation</div>
-                    <div style={{ fontSize: "17px", fontWeight: 700, color: "#1B3A6B", marginTop: "4px" }}>{reportType}</div>
-                    <div style={{ fontSize: "12px", color: "#6B7480", marginTop: "2px" }}>MPLAD Scheme | Financial Year {form.financialYear} | Generated: 27 August 2026</div>
+                    <div style={{ fontSize: "17px", fontWeight: 700, color: "#1B3A6B", marginTop: "4px" }}>{reportResult.reportType}</div>
+                    <div style={{ fontSize: "12px", color: "#6B7480", marginTop: "2px" }}>MPLAD Scheme | Financial Year {reportResult.financialYear} | Generated: {reportResult.generatedAt}</div>
                   </div>
                   <div style={{ background: "#F0F1F4", padding: "8px 12px", borderRadius: "3px", textAlign: "right", fontSize: "11px" }}>
                     <div style={{ fontWeight: 700, color: "#1B3A6B" }}>Report ID</div>
-                    <div style={{ fontFamily: "monospace" }}>RPT-2026-{Math.floor(Math.random() * 1000).toString().padStart(3, "0")}</div>
+                    <div style={{ fontFamily: "monospace" }}>{reportResult.reportId}</div>
                   </div>
                 </div>
               </div>
@@ -118,12 +139,12 @@ export function Reports() {
               {/* Report Body */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px", marginBottom: "16px" }}>
                 {[
-                  { label: "Total Projects Covered", value: "1,284" },
-                  { label: "Total Funds Analysed", value: "₹482.6 Cr" },
-                  { label: "High-Risk Projects", value: "43" },
-                  { label: "Anomalies Detected", value: "65" },
-                  { label: "Resolved Cases", value: "214" },
-                  { label: "Pending Action", value: "58" },
+                  { label: "Total Projects Covered", value: reportResult.totalProjects },
+                  { label: "Total Funds Analysed", value: reportResult.fundsAnalysed },
+                  { label: "High-Risk Projects", value: reportResult.highRiskProjects },
+                  { label: "Anomalies Detected", value: reportResult.anomaliesDetected },
+                  { label: "Resolved Cases", value: reportResult.resolvedCases },
+                  { label: "Pending Action", value: reportResult.pendingAction },
                 ].map((k, i) => (
                   <div key={i} style={{ background: "#F7F8FA", border: "1px solid #E2E5EA", borderRadius: "3px", padding: "10px 12px" }}>
                     <div style={{ fontSize: "10px", color: "#6B7480", textTransform: "uppercase", letterSpacing: "0.04em" }}>{k.label}</div>
@@ -134,16 +155,16 @@ export function Reports() {
 
               <div style={{ fontSize: "13px", fontWeight: 700, color: "#1A1D23", marginBottom: "10px" }}>Executive Summary</div>
               <div style={{ fontSize: "12px", color: "#3A4050", lineHeight: "1.8", marginBottom: "14px", padding: "12px", background: "#F7F8FA", borderRadius: "3px" }}>
-                The AI-based monitoring system analysed 1,284 MPLAD projects for Financial Year {form.financialYear}. A total of ₹482.6 Crore was allocated, of which ₹391.4 Crore (81.1%) has been utilised. AI algorithms detected 65 anomalous patterns across {form.district === "All Districts" ? "all districts" : form.district}, including duplicate billing indicators, cost overruns, and geographic inconsistencies. 43 projects have been classified as high-risk or critical and require immediate administrative attention.
+                {reportResult.summary}
               </div>
 
               <div style={{ fontSize: "13px", fontWeight: 700, color: "#1A1D23", marginBottom: "10px" }}>Key Findings</div>
               {[
-                { sno: 1, finding: "Possible duplicate billing detected in MPLAD-2026-00482 (AI Confidence: 96%)", severity: "Critical" },
-                { sno: 2, finding: "Cost overrun without administrative revision in MPLAD-2026-00156 (+24%)", severity: "High" },
-                { sno: 3, finding: "Expenditure-progress mismatch in 9 road infrastructure projects", severity: "High" },
-                { sno: 4, finding: "Vendor M/s Sharma Constructions: anomalies across 4 projects", severity: "High" },
-                { sno: 5, finding: "127 duplicate beneficiary records identified across 6 districts", severity: "Medium" },
+                { sno: 1, finding: "Unusual expenditure patterns detected across sanctioned works", severity: "Critical" },
+                { sno: 2, finding: "Extreme cost deviation above baseline sanction amount flagged", severity: "High" },
+                { sno: 3, finding: "Physical-financial progress mismatch in road and building infrastructure", severity: "High" },
+                { sno: 4, finding: "Concentrated vendor assignment patterns flagged for audit review", severity: "High" },
+                { sno: 5, finding: "Demographic clusters identified with duplicate demographic indicators", severity: "Medium" },
               ].map((f, i) => (
                 <div key={i} style={{ display: "flex", gap: "10px", padding: "8px 0", borderBottom: "1px solid #F0F1F4", fontSize: "12px" }}>
                   <span style={{ color: "#9AA3B0", fontFamily: "monospace", width: "20px", flexShrink: 0 }}>{f.sno}.</span>
@@ -153,7 +174,7 @@ export function Reports() {
               ))}
 
               <div style={{ marginTop: "14px", padding: "10px 12px", background: "#EEF2F9", borderRadius: "3px", fontSize: "11px", color: "#6B7480", borderLeft: "3px solid #1B3A6B" }}>
-                This report has been generated by MP-Guard AI v2.4.1. AI-generated findings are advisory in nature and require human verification before administrative action. Report ID: RPT-2026-082 | Generated by: R.K. Sharma (Monitoring Officer) | Date: 27 August 2026
+                This report has been generated by VIGILANT-MPLAD AI Engine v1.2.0. AI-generated findings are advisory in nature and designed to guide human verification. Report ID: {reportResult.reportId} | Ministry of Statistics and Programme Implementation.
               </div>
             </div>
           )}
@@ -171,10 +192,10 @@ export function Reports() {
           </tr></thead>
           <tbody>
             {[
-              { id: "RPT-2026-082", type: "District Risk Report", by: "Joint Secretary", date: "24 Aug 2026", params: "Alwar · FY 2025-26", status: "Final" },
+              { id: "RPT-2026-082", type: "District Risk Report", by: "Joint Secretary", date: "24 Aug 2026", params: "Rajasthan · FY 2025-26", status: "Final" },
               { id: "RPT-2026-079", type: "AI Risk Report", by: "R.K. Sharma", date: "22 Aug 2026", params: "All Districts · High Risk", status: "Final" },
               { id: "RPT-2026-071", type: "Financial Utilisation", by: "Finance Officer", date: "15 Aug 2026", params: "All States · FY 2025-26", status: "Final" },
-              { id: "RPT-2026-065", type: "Fraud Investigation", by: "CAG Auditor", date: "10 Aug 2026", params: "MPLAD-2026-00482", status: "Under Review" },
+              { id: "RPT-2026-065", type: "Fraud Investigation", by: "CAG Auditor", date: "10 Aug 2026", params: "Critical Alert Audit", status: "Under Review" },
             ].map((r, i) => (
               <tr key={i} style={{ borderBottom: "1px solid #F0F1F4" }}>
                 <td style={{ padding: "8px 10px", fontFamily: "monospace", fontSize: "11px", color: "#1B3A6B", fontWeight: 600 }}>{r.id}</td>
@@ -187,8 +208,8 @@ export function Reports() {
                 </td>
                 <td style={{ padding: "8px 10px" }}>
                   <div style={{ display: "flex", gap: "4px" }}>
-                    <button style={{ padding: "3px 7px", background: "#EEF2F9", color: "#1B3A6B", border: "1px solid #C8D8F0", borderRadius: "3px", fontSize: "10px", cursor: "pointer" }}>View</button>
-                    <button style={{ padding: "3px 7px", background: "#fff", color: "#3A4050", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "10px", cursor: "pointer" }}>PDF</button>
+                    <button onClick={() => handleDownload("csv")} style={{ padding: "3px 7px", background: "#EEF2F9", color: "#1B3A6B", border: "1px solid #C8D8F0", borderRadius: "3px", fontSize: "10px", cursor: "pointer" }}>View</button>
+                    <button onClick={() => handleDownload("csv")} style={{ padding: "3px 7px", background: "#fff", color: "#3A4050", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "10px", cursor: "pointer" }}>CSV</button>
                   </div>
                 </td>
               </tr>
@@ -199,3 +220,4 @@ export function Reports() {
     </div>
   );
 }
+

@@ -1,21 +1,38 @@
-import { useState } from "react";
-import { AUDIT_LOG } from "../data/mockData";
+import { useState, useEffect, useCallback } from "react";
+import { api } from "../services/api";
 
 export function AuditTrail() {
+  const [logs, setLogs] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [filterModule, setFilterModule] = useState("All Modules");
   const [filterRole, setFilterRole] = useState("All Roles");
+  const [loading, setLoading] = useState(true);
 
-  const filtered = AUDIT_LOG.filter(log => {
-    const s = search.toLowerCase();
-    if (s && !log.action.toLowerCase().includes(s) && !log.project.toLowerCase().includes(s) && !log.user.toLowerCase().includes(s)) return false;
-    if (filterModule !== "All Modules" && log.module !== filterModule) return false;
-    if (filterRole !== "All Roles" && log.role !== filterRole) return false;
-    return true;
-  });
+  const loadLogs = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api.getAuditTrail({
+        search: search.trim() || undefined,
+        module: filterModule === "All Modules" ? undefined : filterModule,
+        role: filterRole === "All Roles" ? undefined : filterRole,
+      });
+      setLogs(res || []);
+    } catch (err) {
+      console.error("Failed to load audit logs:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [search, filterModule, filterRole]);
 
-  const modules = ["All Modules", ...Array.from(new Set(AUDIT_LOG.map(l => l.module)))];
-  const roles = ["All Roles", ...Array.from(new Set(AUDIT_LOG.map(l => l.role)))];
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      loadLogs();
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [loadLogs]);
+
+  const modules = ["All Modules", "Projects", "AI Risk Intelligence", "Alerts & Investigations", "Financial Monitoring", "Geo Monitoring", "Administration"];
+  const roles = ["All Roles", "Administrator", "Monitoring Officer", "Finance Officer", "Auditor", "System"];
 
   return (
     <div>
@@ -26,7 +43,7 @@ export function AuditTrail() {
 
       <div style={{ background: "#EEF2F9", border: "1px solid #C8D8F0", borderRadius: "3px", padding: "10px 14px", marginBottom: "14px", fontSize: "12px", color: "#1B3A6B", display: "flex", alignItems: "center", gap: "8px" }}>
         <span>🔒</span>
-        <span>All audit records are cryptographically signed and tamper-proof. Deletion is not permitted. Audit log is retained for 7 years per MoSPI policy.</span>
+        <span>All audit records are cryptographically verified and tamper-proof. Deletion is not permitted. Audit log is retained per MoSPI statutory policy.</span>
       </div>
 
       {/* Filters */}
@@ -50,13 +67,13 @@ export function AuditTrail() {
           </div>
           <button onClick={() => { setSearch(""); setFilterModule("All Modules"); setFilterRole("All Roles"); }} style={{ padding: "6px 12px", background: "#F0F1F4", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", cursor: "pointer", alignSelf: "flex-end" }}>Reset</button>
         </div>
-        <button style={{ padding: "6px 14px", background: "#fff", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", cursor: "pointer", alignSelf: "flex-end" }}>Export Audit Log</button>
+        <button onClick={() => window.open("/api/reports/export?dataset_type=alerts&format=csv", "_blank")} style={{ padding: "6px 14px", background: "#fff", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", cursor: "pointer", alignSelf: "flex-end" }}>Export Audit Log</button>
       </div>
 
       {/* Audit Table */}
       <div style={{ background: "#fff", border: "1px solid #E2E5EA", borderRadius: "3px", overflow: "hidden" }}>
         <div style={{ padding: "10px 14px", borderBottom: "1px solid #E2E5EA", fontSize: "12px", color: "#6B7480" }}>
-          Showing {filtered.length} records
+          Showing {logs.length} immutable records
         </div>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
           <thead>
@@ -67,7 +84,7 @@ export function AuditTrail() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((log, i) => (
+            {logs.map((log, i) => (
               <tr key={i} style={{ borderBottom: "1px solid #F0F1F4" }}
                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "#F7F8FA"}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = ""}>
@@ -88,10 +105,13 @@ export function AuditTrail() {
             ))}
           </tbody>
         </table>
-        {filtered.length === 0 && (
-          <div style={{ padding: "40px", textAlign: "center", color: "#9AA3B0", fontSize: "13px" }}>No audit records match the current filters.</div>
+        {logs.length === 0 && (
+          <div style={{ padding: "40px", textAlign: "center", color: "#9AA3B0", fontSize: "13px" }}>
+            {loading ? "Loading audit records..." : "No audit records match the current filters."}
+          </div>
         )}
       </div>
     </div>
   );
 }
+

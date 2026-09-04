@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { PROJECTS } from "../data/mockData";
+import { useState, useEffect } from "react";
+import { api } from "../services/api";
+import { useDataset } from "../context/DatasetContext";
 
 interface ProjectsProps {
   onNavigate: (page: any, data?: any) => void;
@@ -37,59 +38,128 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export function Projects({ onNavigate }: ProjectsProps) {
+  const { activeVersion, activeMetadata } = useDataset();
+
+  const [projects, setProjects] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [availableStates, setAvailableStates] = useState<string[]>(["All States"]);
+  const [availableCategories, setAvailableCategories] = useState<string[]>(["All Categories"]);
+  const [loading, setLoading] = useState(false);
+
   const [search, setSearch] = useState("");
   const [filterState, setFilterState] = useState("All States");
   const [filterRisk, setFilterRisk] = useState("All Risk Levels");
   const [filterStatus, setFilterStatus] = useState("All Statuses");
   const [filterCategory, setFilterCategory] = useState("All Categories");
-  const [sortCol, setSortCol] = useState("id");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [sortCol, setSortCol] = useState("risk_score");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(1);
-  const PAGE_SIZE = 6;
+  const PAGE_SIZE = 8;
 
-  let filtered = PROJECTS.filter(p => {
-    const s = search.toLowerCase();
-    if (s && !p.name.toLowerCase().includes(s) && !p.id.toLowerCase().includes(s) && !p.district.toLowerCase().includes(s)) return false;
-    if (filterState !== "All States" && p.state !== filterState) return false;
-    if (filterRisk !== "All Risk Levels" && p.riskLevel !== filterRisk) return false;
-    if (filterStatus !== "All Statuses" && p.status !== filterStatus) return false;
-    if (filterCategory !== "All Categories" && p.category !== filterCategory) return false;
-    return true;
-  });
+  useEffect(() => {
+    async function loadProjects() {
+      setLoading(true);
+      try {
+        const res = await api.listProjects({
+          dataset_version: activeVersion,
+          search,
+          state: filterState,
+          risk_level: filterRisk,
+          status: filterStatus,
+          category: filterCategory,
+          sort_by: sortCol,
+          sort_dir: sortDir,
+          page,
+          page_size: PAGE_SIZE,
+        });
 
-  const sorted = [...filtered].sort((a, b) => {
-    let av: any = (a as any)[sortCol], bv: any = (b as any)[sortCol];
-    if (typeof av === "string") av = av.toLowerCase(), bv = bv.toLowerCase();
-    return sortDir === "asc" ? (av < bv ? -1 : 1) : (av > bv ? -1 : 1);
-  });
+        setProjects(res.items);
+        setTotal(res.total);
+        setTotalPages(res.total_pages);
+        if (res.available_states?.length) {
+          setAvailableStates(["All States", ...res.available_states]);
+        }
+        if (res.available_categories?.length) {
+          setAvailableCategories(["All Categories", ...res.available_categories]);
+        }
+      } catch (err) {
+        console.error("Error loading projects:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
 
-  const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
-  const paged = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+    const timer = setTimeout(() => {
+      loadProjects();
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, [activeVersion, search, filterState, filterRisk, filterStatus, filterCategory, sortCol, sortDir, page]);
 
   const toggleSort = (col: string) => {
-    if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc");
-    else { setSortCol(col); setSortDir("asc"); }
+    const colMap: Record<string, string> = {
+      id: "work_id",
+      name: "work_description",
+      mp: "mp_name",
+      district: "constituency",
+      category: "work_category",
+      approved: "effective_sanction_amount",
+      utilized: "expenditure_amount",
+      status: "dashboard_status",
+      risk: "risk_score",
+      lastUpdated: "sanction_date"
+    };
+    const dbCol = colMap[col] || col;
+    if (sortCol === dbCol) {
+      setSortDir(d => d === "asc" ? "desc" : "asc");
+    } else {
+      setSortCol(dbCol);
+      setSortDir("desc");
+    }
   };
 
-  const SortIcon = ({ col }: { col: string }) => (
-    <span style={{ marginLeft: "4px", opacity: sortCol === col ? 1 : 0.3, fontSize: "10px" }}>
-      {sortCol === col ? (sortDir === "asc" ? "▲" : "▼") : "⇅"}
-    </span>
-  );
+  const SortIcon = ({ col }: { col: string }) => {
+    const colMap: Record<string, string> = {
+      id: "work_id",
+      name: "work_description",
+      mp: "mp_name",
+      district: "constituency",
+      category: "work_category",
+      approved: "effective_sanction_amount",
+      utilized: "expenditure_amount",
+      status: "dashboard_status",
+      risk: "risk_score",
+      lastUpdated: "sanction_date"
+    };
+    const dbCol = colMap[col] || col;
+    return (
+      <span style={{ marginLeft: "4px", opacity: sortCol === dbCol ? 1 : 0.3, fontSize: "10px" }}>
+        {sortCol === dbCol ? (sortDir === "asc" ? "▲" : "▼") : "⇅"}
+      </span>
+    );
+  };
 
-  const states = ["All States", ...Array.from(new Set(PROJECTS.map(p => p.state)))];
-  const categories = ["All Categories", ...Array.from(new Set(PROJECTS.map(p => p.category)))];
+  const handleExport = () => {
+    window.open("/api/reports/export?dataset_type=projects&format=csv", "_blank");
+  };
 
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px" }}>
         <div>
           <h1 style={{ fontSize: "18px", fontWeight: 700, color: "#1B3A6B", margin: 0 }}>MPLAD Projects</h1>
-          <div style={{ fontSize: "12px", color: "#6B7480", marginTop: "2px" }}>Financial Year 2025–26 | Total: {filtered.length} projects</div>
+          <div style={{ fontSize: "12px", color: "#6B7480", marginTop: "2px" }}>
+            Financial Year 2025–26 | Total: {total.toLocaleString()} projects {loading && "(Loading...)"}
+          </div>
         </div>
         <div style={{ display: "flex", gap: "8px" }}>
-          <button style={{ padding: "7px 14px", background: "#fff", color: "#3A4050", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", cursor: "pointer" }}>Export Excel</button>
-          <button style={{ padding: "7px 14px", background: "#1B3A6B", color: "#fff", border: "none", borderRadius: "3px", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>Generate Report</button>
+          <button onClick={handleExport} style={{ padding: "7px 14px", background: "#fff", color: "#3A4050", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", cursor: "pointer" }}>
+            Export Excel
+          </button>
+          <button onClick={() => onNavigate("reports")} style={{ padding: "7px 14px", background: "#1B3A6B", color: "#fff", border: "none", borderRadius: "3px", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>
+            Generate Report
+          </button>
         </div>
       </div>
 
@@ -106,8 +176,8 @@ export function Projects({ onNavigate }: ProjectsProps) {
           />
         </div>
         {[
-          { label: "State", value: filterState, set: setFilterState, options: states },
-          { label: "Category", value: filterCategory, set: setFilterCategory, options: categories },
+          { label: "State", value: filterState, set: setFilterState, options: availableStates },
+          { label: "Category", value: filterCategory, set: setFilterCategory, options: availableCategories },
           { label: "Risk Level", value: filterRisk, set: setFilterRisk, options: ["All Risk Levels", "Critical", "High", "Medium", "Low"] },
           { label: "Status", value: filterStatus, set: setFilterStatus, options: ["All Statuses", "Completed", "Under Implementation", "Delayed", "Verification Required"] },
         ].map(f => (
@@ -151,7 +221,7 @@ export function Projects({ onNavigate }: ProjectsProps) {
               </tr>
             </thead>
             <tbody>
-              {paged.map((p, i) => (
+              {projects.map((p, i) => (
                 <tr key={i} style={{ cursor: "pointer" }} onClick={() => onNavigate("project-detail", p)}
                   onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = "#F7F8FA"}
                   onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = ""}
@@ -190,6 +260,13 @@ export function Projects({ onNavigate }: ProjectsProps) {
                   </td>
                 </tr>
               ))}
+              {projects.length === 0 && (
+                <tr>
+                  <td colSpan={12} style={{ padding: "40px", textAlign: "center", color: "#9AA3B0" }}>
+                    {loading ? "Loading projects..." : "No projects found matching the selected filters."}
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -197,16 +274,16 @@ export function Projects({ onNavigate }: ProjectsProps) {
         {/* Pagination */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderTop: "1px solid #E2E5EA", background: "#F7F8FA" }}>
           <div style={{ fontSize: "12px", color: "#6B7480" }}>
-            Showing {Math.min((page - 1) * PAGE_SIZE + 1, sorted.length)}–{Math.min(page * PAGE_SIZE, sorted.length)} of {sorted.length} projects
+            Showing {total > 0 ? (page - 1) * PAGE_SIZE + 1 : 0}–{Math.min(page * PAGE_SIZE, total)} of {total.toLocaleString()} projects
           </div>
           <div style={{ display: "flex", gap: "4px" }}>
             <button onClick={() => setPage(1)} disabled={page === 1} style={{ padding: "4px 8px", border: "1px solid #D0D5DD", borderRadius: "3px", background: "#fff", cursor: page === 1 ? "not-allowed" : "pointer", fontSize: "12px", opacity: page === 1 ? 0.5 : 1 }}>«</button>
             <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} style={{ padding: "4px 8px", border: "1px solid #D0D5DD", borderRadius: "3px", background: "#fff", cursor: page === 1 ? "not-allowed" : "pointer", fontSize: "12px", opacity: page === 1 ? 0.5 : 1 }}>‹</button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
-              <button key={p} onClick={() => setPage(p)} style={{ padding: "4px 10px", border: "1px solid #D0D5DD", borderRadius: "3px", background: p === page ? "#1B3A6B" : "#fff", color: p === page ? "#fff" : "#3A4050", cursor: "pointer", fontSize: "12px", fontWeight: p === page ? 600 : 400 }}>{p}</button>
-            ))}
-            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={{ padding: "4px 8px", border: "1px solid #D0D5DD", borderRadius: "3px", background: "#fff", cursor: page === totalPages ? "not-allowed" : "pointer", fontSize: "12px", opacity: page === totalPages ? 0.5 : 1 }}>›</button>
-            <button onClick={() => setPage(totalPages)} disabled={page === totalPages} style={{ padding: "4px 8px", border: "1px solid #D0D5DD", borderRadius: "3px", background: "#fff", cursor: page === totalPages ? "not-allowed" : "pointer", fontSize: "12px", opacity: page === totalPages ? 0.5 : 1 }}>»</button>
+            <span style={{ padding: "4px 10px", fontSize: "12px", fontWeight: 600, color: "#1B3A6B" }}>
+              Page {page} of {totalPages || 1}
+            </span>
+            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} style={{ padding: "4px 8px", border: "1px solid #D0D5DD", borderRadius: "3px", background: "#fff", cursor: page >= totalPages ? "not-allowed" : "pointer", fontSize: "12px", opacity: page >= totalPages ? 0.5 : 1 }}>›</button>
+            <button onClick={() => setPage(totalPages)} disabled={page >= totalPages} style={{ padding: "4px 8px", border: "1px solid #D0D5DD", borderRadius: "3px", background: "#fff", cursor: page >= totalPages ? "not-allowed" : "pointer", fontSize: "12px", opacity: page >= totalPages ? 0.5 : 1 }}>»</button>
           </div>
         </div>
       </div>

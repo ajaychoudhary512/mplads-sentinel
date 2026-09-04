@@ -1,11 +1,11 @@
-import { useState } from "react";
-import { ALERTS } from "../data/mockData";
+import { useState, useEffect, useCallback } from "react";
+import { api } from "../services/api";
 
 interface FraudAlertsProps {
   onNavigate: (page: any, data?: any) => void;
 }
 
-const STATUS_FLOW = ["Detected", "Under Review", "Investigation", "Resolved", "Escalated"];
+const STATUS_FLOW = ["Detected", "Under Review", "Under Investigation", "Resolved", "Escalated"];
 
 function SeverityBadge({ severity }: { severity: string }) {
   const cfg: Record<string, { bg: string; color: string; dot: string }> = {
@@ -23,49 +23,71 @@ function SeverityBadge({ severity }: { severity: string }) {
   );
 }
 
+import { useDataset } from "../context/DatasetContext";
+
 export function FraudAlerts({ onNavigate }: FraudAlertsProps) {
-  const [alerts, setAlerts] = useState(ALERTS.map(a => ({ ...a })));
+  const { activeVersion, activeMetadata } = useDataset();
+
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [counts, setCounts] = useState({ critical: 0, high: 0, medium: 0, resolved: 0 });
   const [filterSeverity, setFilterSeverity] = useState("All");
   const [filterStatus, setFilterStatus] = useState("All");
   const [search, setSearch] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+  const [loading, setLoading] = useState(true);
 
-  const updateStatus = (id: string, newStatus: string) => {
-    setAlerts(prev => prev.map(a => a.id === id ? { ...a, status: newStatus } : a));
-    setSuccessMsg(`Alert ${id} status updated to "${newStatus}".`);
-    setTimeout(() => setSuccessMsg(""), 3000);
-  };
+  const loadAlerts = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api.listAlerts({
+        dataset_version: activeVersion,
+        severity: filterSeverity === "All" ? undefined : filterSeverity,
+        status: filterStatus === "All" ? undefined : filterStatus,
+        search: search.trim() || undefined,
+      });
+      setAlerts(res.items || []);
+      if (res.counts) setCounts(res.counts);
+    } catch (err) {
+      console.error("Failed to load alerts:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [activeVersion, filterSeverity, filterStatus, search]);
 
-  const filtered = alerts.filter(a => {
-    if (filterSeverity !== "All" && a.severity !== filterSeverity) return false;
-    if (filterStatus !== "All" && a.status !== filterStatus) return false;
-    if (search && !a.anomaly.toLowerCase().includes(search.toLowerCase()) && !a.project.toLowerCase().includes(search.toLowerCase())) return false;
-    return true;
-  });
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      loadAlerts();
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [loadAlerts]);
 
-  const counts = {
-    Critical: alerts.filter(a => a.severity === "Critical").length,
-    High: alerts.filter(a => a.severity === "High").length,
-    Medium: alerts.filter(a => a.severity === "Medium").length,
-    Resolved: alerts.filter(a => a.status === "Resolved").length,
+  const updateStatus = async (id: string, newStatus: string) => {
+    try {
+      await api.updateAlertStatus(id, newStatus);
+      setAlerts(prev => prev.map(a => a.id === id ? { ...a, status: newStatus } : a));
+      setSuccessMsg(`Alert ${id} status updated to "${newStatus}".`);
+      setTimeout(() => setSuccessMsg(""), 3500);
+    } catch (err) {
+      console.error("Failed to update status:", err);
+    }
   };
 
   return (
     <div>
       <div style={{ marginBottom: "16px" }}>
         <h1 style={{ fontSize: "18px", fontWeight: 700, color: "#1B3A6B", margin: 0 }}>Fraud & Anomaly Alert Centre</h1>
-        <div style={{ fontSize: "12px", color: "#6B7480", marginTop: "2px" }}>AI-generated alerts requiring review and administrative action</div>
+        <div style={{ fontSize: "12px", color: "#6B7480", marginTop: "2px" }}>AI-generated alerts requiring review and administrative action | Source: 6 Master Datasets</div>
       </div>
 
       {/* Summary Cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginBottom: "16px" }}>
         {[
-          { label: "Critical", value: counts.Critical, color: "#DC2626", bg: "#FEE2E2", filter: "Critical" },
-          { label: "High Severity", value: counts.High, color: "#EA580C", bg: "#FFEDD5", filter: "High" },
-          { label: "Medium Severity", value: counts.Medium, color: "#D97706", bg: "#FEF3C7", filter: "Medium" },
-          { label: "Resolved", value: counts.Resolved, color: "#15803D", bg: "#DCFCE7", filter: "Resolved" },
+          { label: "Critical", value: counts.critical, color: "#DC2626", bg: "#FEE2E2", filter: "Critical" },
+          { label: "High Severity", value: counts.high, color: "#EA580C", bg: "#FFEDD5", filter: "High" },
+          { label: "Medium Severity", value: counts.medium, color: "#D97706", bg: "#FEF3C7", filter: "Medium" },
+          { label: "Resolved", value: counts.resolved, color: "#15803D", bg: "#DCFCE7", filter: "Resolved" },
         ].map((c, i) => (
-          <div key={i} onClick={() => setFilterSeverity(i < 3 ? c.filter : "All")}
+          <div key={i} onClick={() => { if (i < 3) setFilterSeverity(c.filter); else setFilterStatus("Resolved"); }}
             style={{ background: "#fff", border: `1px solid ${c.color}30`, borderTop: `3px solid ${c.color}`, borderRadius: "3px", padding: "14px", cursor: "pointer" }}>
             <div style={{ fontSize: "28px", fontWeight: 700, color: c.color, fontFamily: "monospace" }}>{c.value}</div>
             <div style={{ fontSize: "11px", fontWeight: 600, color: "#6B7480", textTransform: "uppercase", letterSpacing: "0.04em" }}>{c.label}</div>
@@ -81,7 +103,7 @@ export function FraudAlerts({ onNavigate }: FraudAlertsProps) {
       <div style={{ background: "#fff", border: "1px solid #E2E5EA", borderRadius: "3px", padding: "12px 14px", marginBottom: "14px", display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "flex-end" }}>
         <div>
           <div style={{ fontSize: "11px", fontWeight: 600, color: "#6B7480", marginBottom: "4px" }}>Search</div>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search alerts..." style={{ padding: "6px 10px", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", width: "200px" }} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search alerts or project IDs..." style={{ padding: "6px 10px", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", width: "220px" }} />
         </div>
         <div>
           <div style={{ fontSize: "11px", fontWeight: 600, color: "#6B7480", marginBottom: "4px" }}>Severity</div>
@@ -97,6 +119,8 @@ export function FraudAlerts({ onNavigate }: FraudAlertsProps) {
         </div>
         <button onClick={() => { setFilterSeverity("All"); setFilterStatus("All"); setSearch(""); }}
           style={{ padding: "6px 12px", background: "#F0F1F4", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", cursor: "pointer", alignSelf: "flex-end" }}>Reset</button>
+        <button onClick={() => window.open("/api/reports/export?dataset_type=alerts&format=csv", "_blank")}
+          style={{ padding: "6px 12px", background: "#fff", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", cursor: "pointer", alignSelf: "flex-end" }}>Export CSV</button>
       </div>
 
       {/* Status workflow reference */}
@@ -112,7 +136,7 @@ export function FraudAlerts({ onNavigate }: FraudAlertsProps) {
 
       {/* Alert Cards */}
       <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-        {filtered.map((alert, i) => (
+        {alerts.map((alert, i) => (
           <div key={i} style={{ background: "#fff", border: "1px solid #E2E5EA", borderLeft: `4px solid ${alert.severity === "Critical" ? "#DC2626" : alert.severity === "High" ? "#EA580C" : "#D97706"}`, borderRadius: "3px", padding: "14px 16px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px", flexWrap: "wrap" }}>
               <div style={{ flex: 1 }}>
@@ -128,7 +152,7 @@ export function FraudAlerts({ onNavigate }: FraudAlertsProps) {
                   <span><span style={{ color: "#9AA3B0" }}>Project: </span><span style={{ fontWeight: 500 }}>{alert.projectName}</span></span>
                   <span><span style={{ color: "#9AA3B0" }}>Amount: </span><span style={{ fontWeight: 600, fontFamily: "monospace" }}>{alert.amount}</span></span>
                   <span><span style={{ color: "#9AA3B0" }}>AI Confidence: </span><span style={{ fontWeight: 600, color: alert.confidence > 85 ? "#DC2626" : "#D97706" }}>{alert.confidence}%</span></span>
-                  <span><span style={{ color: "#9AA3B0" }}>District: </span><span style={{ fontWeight: 500 }}>{alert.district}</span></span>
+                  <span><span style={{ color: "#9AA3B0" }}>District/State: </span><span style={{ fontWeight: 500 }}>{alert.district}, {alert.state}</span></span>
                 </div>
               </div>
 
@@ -141,7 +165,7 @@ export function FraudAlerts({ onNavigate }: FraudAlertsProps) {
                   {alert.status}
                 </span>
                 <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                  <button onClick={() => onNavigate("project-detail", { id: alert.project, name: alert.projectName, riskLevel: alert.severity, risk: alert.confidence, district: alert.district, state: "Rajasthan", approved: 48.5, utilized: 42.1, completion: 78, status: "Under Implementation", mp: "—", constituency: "—", category: "—", agency: "—", vendor: "—", startDate: "—", expectedCompletion: "—", lastUpdated: alert.date })}
+                  <button onClick={() => onNavigate("project-detail", { id: alert.project, name: alert.projectName, riskLevel: alert.severity, risk: alert.riskScore || alert.confidence, district: alert.district, state: alert.state })}
                     style={{ padding: "4px 10px", background: "#EEF2F9", color: "#1B3A6B", border: "1px solid #C8D8F0", borderRadius: "3px", fontSize: "11px", cursor: "pointer" }}>View Details</button>
                   {alert.status === "Pending Verification" && (
                     <button onClick={() => updateStatus(alert.id, "Under Review")}
@@ -164,12 +188,13 @@ export function FraudAlerts({ onNavigate }: FraudAlertsProps) {
             </div>
           </div>
         ))}
-        {filtered.length === 0 && (
+        {alerts.length === 0 && (
           <div style={{ background: "#fff", border: "1px solid #E2E5EA", borderRadius: "3px", padding: "40px", textAlign: "center", color: "#9AA3B0" }}>
-            No alerts match the current filter criteria.
+            {loading ? "Loading fraud alerts..." : "No alerts match the current filter criteria."}
           </div>
         )}
       </div>
     </div>
   );
 }
+

@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
-import path from 'node:path'
+import { fileURLToPath, URL } from 'node:url'
 
 // Vite config — https://vitejs.dev/config/
 export default defineConfig({
@@ -11,16 +11,48 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
   server: {
     host: '0.0.0.0',
     port: parseInt(process.env.PORT || '8443'),
     strictPort: true,
+    watch: {
+      ignored: [
+        '**/data/**',
+        '**/backend/**',
+        '**/models/**',
+        '**/tests/**',
+        '**/*.db',
+        '**/*.db-journal',
+        '**/*.db-wal',
+        '**/*.db-shm',
+        '**/*.csv',
+        '**/*.xlsx',
+        '**/*.xls',
+        '**/*.joblib',
+        '**/*.log',
+        '**/exports/**',
+      ],
+    },
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+    },
   },
   preview: {
     host: '0.0.0.0',
     port: parseInt(process.env.PORT || '8443'),
+    strictPort: true,
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+    },
   },
 })
+

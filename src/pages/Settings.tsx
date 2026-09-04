@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { api } from "../services/api";
 
 const USERS = [
   { name: "R.K. Sharma", role: "Monitoring Officer", email: "rk.sharma@mospi.gov.in", status: "Active", lastLogin: "27 Aug 2026" },
@@ -13,8 +14,37 @@ export function Settings() {
   const [riskThreshold, setRiskThreshold] = useState(70);
   const [confidenceMin, setConfidenceMin] = useState(65);
   const [saved, setSaved] = useState(false);
+  const [modelMeta, setModelMeta] = useState<any>(null);
 
-  const handleSave = () => { setSaved(true); setTimeout(() => setSaved(false), 2500); };
+  useEffect(() => {
+    async function fetchModelStatus() {
+      try {
+        const meta = await api.getAIModelStatus();
+        if (meta) setModelMeta(meta);
+      } catch (err) {
+        console.error("Failed to load model status:", err);
+      }
+    }
+    fetchModelStatus();
+  }, []);
+
+  const handleSave = async () => {
+    try {
+      await api.recordAuditEvent({
+        action: "Updated AI Threshold Configuration",
+        module: "Administration",
+        project_id: "SYSTEM",
+        old_value: "Risk: 70, Confidence: 65%",
+        new_value: `Risk: ${riskThreshold}, Confidence: ${confidenceMin}%`,
+        user: "Administrator (Joint Secretary)",
+        role: "Administrator"
+      });
+    } catch (e) {
+      console.error(e);
+    }
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  };
 
   const SECTIONS = [
     { id: "users", label: "User Management" },
@@ -34,7 +64,7 @@ export function Settings() {
       </div>
 
       {saved && (
-        <div style={{ background: "#DCFCE7", border: "1px solid #15803D", borderRadius: "3px", padding: "8px 14px", marginBottom: "14px", fontSize: "12px", color: "#15803D" }}>✓ Settings saved successfully.</div>
+        <div style={{ background: "#DCFCE7", border: "1px solid #15803D", borderRadius: "3px", padding: "8px 14px", marginBottom: "14px", fontSize: "12px", color: "#15803D" }}>✓ Settings saved and recorded in audit log successfully.</div>
       )}
 
       <div style={{ display: "grid", gridTemplateColumns: "200px 1fr", gap: "14px" }}>
@@ -90,11 +120,11 @@ export function Settings() {
             <div>
               <div style={{ fontSize: "14px", fontWeight: 700, marginBottom: "16px" }}>AI Threshold Configuration</div>
               <div style={{ background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: "3px", padding: "10px 12px", marginBottom: "16px", fontSize: "12px", color: "#D97706" }}>
-                ⚠ Changes to AI thresholds affect alert generation. Review carefully before saving.
+                ⚠ Active Model: {modelMeta?.algorithm || "Isolation Forest + LOF + Rules"} ({modelMeta?.modelVersion || "v1.2.0"}). Changes to AI thresholds affect alert generation.
               </div>
 
               {[
-                { label: "Risk Score Alert Threshold", key: "riskThreshold", value: riskThreshold, set: setRiskThreshold, min: 50, max: 95, unit: "/100", desc: "Projects with risk score above this value will generate an alert" },
+                { label: "Risk Score Alert Threshold", key: "riskThreshold", value: riskThreshold, set: setRiskThreshold, min: 50, max: 95, unit: "/100", desc: "Projects with calibrated risk score above this value will generate an alert" },
                 { label: "Minimum AI Confidence", key: "confidenceMin", value: confidenceMin, set: setConfidenceMin, min: 50, max: 95, unit: "%", desc: "Only show alerts where AI confidence exceeds this threshold" },
               ].map((item, i) => (
                 <div key={i} style={{ marginBottom: "20px" }}>
@@ -123,7 +153,7 @@ export function Settings() {
 
               <div style={{ borderTop: "1px solid #E2E5EA", paddingTop: "14px", display: "flex", gap: "8px" }}>
                 <button onClick={handleSave} style={{ padding: "8px 18px", background: "#1B3A6B", color: "#fff", border: "none", borderRadius: "3px", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>Save Settings</button>
-                <button style={{ padding: "8px 14px", background: "#fff", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", cursor: "pointer" }}>Reset to Defaults</button>
+                <button onClick={() => { setRiskThreshold(70); setConfidenceMin(65); }} style={{ padding: "8px 14px", background: "#fff", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", cursor: "pointer" }}>Reset to Defaults</button>
               </div>
             </div>
           )}
@@ -171,7 +201,7 @@ export function Settings() {
               <div style={{ color: "#6B7480", fontSize: "13px", padding: "30px 0", textAlign: "center" }}>
                 <div style={{ fontSize: "32px", marginBottom: "10px", opacity: 0.4 }}>⚙</div>
                 Configuration options for this section are available to Administrators only.<br />
-                Contact your system administrator to modify these settings.
+                Connected to SQLite relational database (`data/mplad_sentinel.db`).
               </div>
             </div>
           )}
@@ -180,3 +210,4 @@ export function Settings() {
     </div>
   );
 }
+

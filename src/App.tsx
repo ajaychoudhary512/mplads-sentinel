@@ -13,6 +13,7 @@ import { Reports } from "./pages/Reports";
 import { AuditTrail } from "./pages/AuditTrail";
 import { Notifications } from "./pages/Notifications";
 import { Settings } from "./pages/Settings";
+import { DatasetProvider } from "./context/DatasetContext";
 
 type Page =
   | "dashboard"
@@ -43,8 +44,10 @@ const BREADCRUMBS: Record<Page, { label: string; page?: Page }[]> = {
   settings: [{ label: "Home", page: "dashboard" }, { label: "Administration" }],
 };
 
+import { authService } from "./services/auth";
+
 export default function App() {
-  const [loggedIn, setLoggedIn] = useState(false);
+  const [loggedIn, setLoggedIn] = useState<boolean>(() => authService.isAuthenticated());
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
   const [selectedProject, setSelectedProject] = useState<any>(null);
 
@@ -52,6 +55,11 @@ export default function App() {
     if (page === "project-detail" && data) setSelectedProject(data);
     setCurrentPage(page);
     window.scrollTo(0, 0);
+  };
+
+  const handleLogout = () => {
+    authService.clearUser();
+    setLoggedIn(false);
   };
 
   if (!loggedIn) {
@@ -67,19 +75,21 @@ export default function App() {
   }) ?? [{ label: "Home" }];
 
   return (
-    <Layout currentPage={currentPage} onNavigate={handleNavigate} breadcrumb={breadcrumb}>
-      {currentPage === "dashboard" && <Dashboard onNavigate={handleNavigate} />}
-      {currentPage === "projects" && <Projects onNavigate={handleNavigate} />}
-      {currentPage === "project-detail" && <ProjectDetail project={selectedProject} onNavigate={handleNavigate} />}
-      {currentPage === "ai-risk" && <AIRisk onNavigate={handleNavigate} />}
-      {currentPage === "fraud-alerts" && <FraudAlerts onNavigate={handleNavigate} />}
-      {currentPage === "geo-monitoring" && <GeoMonitoring onNavigate={handleNavigate} />}
-      {currentPage === "financial" && <FinancialAnalytics />}
-      {currentPage === "vendors" && <Vendors />}
-      {currentPage === "reports" && <Reports />}
-      {currentPage === "audit-trail" && <AuditTrail />}
-      {currentPage === "notifications" && <Notifications onNavigate={handleNavigate} />}
-      {currentPage === "settings" && <Settings />}
-    </Layout>
+    <DatasetProvider>
+      <Layout currentPage={currentPage} onNavigate={handleNavigate} onLogout={handleLogout} breadcrumb={breadcrumb}>
+        {currentPage === "dashboard" && <Dashboard onNavigate={handleNavigate} />}
+        {currentPage === "projects" && <Projects onNavigate={handleNavigate} />}
+        {currentPage === "project-detail" && <ProjectDetail project={selectedProject} onNavigate={handleNavigate} />}
+        {currentPage === "ai-risk" && <AIRisk onNavigate={handleNavigate} />}
+        {currentPage === "fraud-alerts" && <FraudAlerts onNavigate={handleNavigate} />}
+        {currentPage === "geo-monitoring" && <GeoMonitoring onNavigate={handleNavigate} />}
+        {currentPage === "financial" && <FinancialAnalytics />}
+        {currentPage === "vendors" && <Vendors />}
+        {currentPage === "reports" && <Reports />}
+        {currentPage === "audit-trail" && <AuditTrail />}
+        {currentPage === "notifications" && <Notifications onNavigate={handleNavigate} />}
+        {currentPage === "settings" && <Settings />}
+      </Layout>
+    </DatasetProvider>
   );
 }
