@@ -30,12 +30,17 @@ logger = logging.getLogger("backend.main")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: ensure tables exist and seed database if empty
+    # Startup: ensure tables exist
     logger.info(f"Starting {settings.APP_NAME} in [{settings.ENVIRONMENT}] mode...")
     logger.info("Initializing VIGILANT-MPLAD database schema...")
     try:
         Base.metadata.create_all(bind=engine)
-        seed_database()
+        # Cloud low-memory optimization: seed only on local SQLite or when explicitly requested
+        import os
+        import gc
+        if os.getenv("AUTO_SEED", "false").lower() in ("true", "1") or settings.DATABASE_URL.startswith("sqlite"):
+            seed_database()
+        gc.collect()
     except Exception as e:
         logger.warning(f"Notice during startup database initialization: {e}")
     yield
