@@ -207,7 +207,9 @@ class MasterDatasetBuilder:
         m["vendor_concentration"] = np.where(valid_vendor, m["vendor_project_count"] / np.maximum(m["mp_total_projects"], 1), 0.0)
 
         # Split payment and transaction count
-        m["expenditure_transaction_count"] = m["expenditure_transaction_count"].fillna(0)
+        if "expenditure_transaction_count" not in m.columns:
+            m["expenditure_transaction_count"] = 0
+        m["expenditure_transaction_count"] = pd.to_numeric(m["expenditure_transaction_count"], errors="coerce").fillna(0)
         m["split_payment_flag"] = (m["expenditure_transaction_count"] > 1).astype(int)
         m["n_signals_available"] = (
             m["sanction_amount"].notna().astype(int)

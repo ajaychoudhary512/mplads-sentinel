@@ -1,4 +1,4 @@
-const API_BASE = "";
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 
 let currentDatasetVersion = "V1";
 
@@ -46,6 +46,10 @@ export const api = {
   setCurrentDatasetVersion,
   getCurrentDatasetVersion,
 
+  // Health check
+  getHealth: () => fetchJSON<any>("/api/health"),
+  getReadiness: () => fetchJSON<any>("/api/health/ready"),
+
   // Dataset Management
   getDatasetVersions: () => fetchJSON<any[]>("/api/data/datasets"),
   getActiveDataset: () => fetchJSON<any>("/api/data/datasets/active"),
@@ -62,7 +66,8 @@ export const api = {
     q.append("mode", mode);
     if (datasetName) q.append("dataset_name", datasetName);
 
-    const res = await fetch(`/api/data/upload?${q.toString()}`, {
+    const uploadUrl = `${API_BASE}/api/data/upload?${q.toString()}`;
+    const res = await fetch(uploadUrl, {
       method: "POST",
       body: formData,
     });

@@ -34,7 +34,11 @@ def get_effective_version(dataset_version: Optional[str], db: Session) -> str:
     if dataset_version and dataset_version.strip():
         return dataset_version.strip()
     active_v = db.query(DatasetVersion).filter(DatasetVersion.is_active == True).first()
-    return active_v.version_id if active_v else "V1"
+    if active_v:
+        has_data = db.query(Project.id).filter(Project.dataset_version == active_v.version_id).first() is not None
+        if has_data:
+            return active_v.version_id
+    return "V1"
 
 
 @router.get("/summary")

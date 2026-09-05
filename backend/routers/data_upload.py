@@ -32,7 +32,7 @@ def get_next_version_id(db: Session) -> str:
 @router.post("/upload")
 async def upload_dataset_files(
     files: List[UploadFile] = File(...),
-    mode: str = Query("replace", regex="^(replace|append)$"),
+    mode: str = Query("replace", pattern="^(replace|append)$"),
     dataset_name: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
@@ -191,12 +191,13 @@ def activate_dataset_version(version: str, db: Session = Depends(get_db)):
     if not target:
         raise HTTPException(status_code=404, detail=f"Dataset version '{version}' not found")
 
-    if target.status != "READY":
+    if target.status not in ("READY", "SUPERSEDED"):
         raise HTTPException(status_code=400, detail=f"Cannot activate version '{version}' in status '{target.status}'")
 
     # Deactivate all, activate target
-    db.query(DatasetVersion).update({DatasetVersion.is_active: False})
+    db.query(DatasetVersion).update({DatasetVersion.is_active: False, DatasetVersion.status: "SUPERSEDED"})
     target.is_active = True
+    target.status = "READY"
     
     audit = AuditLog(
         timestamp=datetime.now(timezone.utc),

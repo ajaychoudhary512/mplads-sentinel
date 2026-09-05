@@ -44,6 +44,12 @@ def seed_database(db: Session = None, force_reseed: bool = False):
                 )
                 db.add(v1_meta)
                 db.commit()
+            else:
+                active_any = db.query(DatasetVersion).filter(DatasetVersion.is_active == True).first()
+                if not active_any:
+                    v1_meta.is_active = True
+                    v1_meta.status = "READY"
+                    db.commit()
             return
 
         proj_csv = Path("data/processed/project_risk_results.csv")

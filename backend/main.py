@@ -1,9 +1,12 @@
+import time
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
-from backend.db.database import engine, Base
+from backend.config import settings
+from backend.db.database import engine, Base, check_db_health
 import backend.db.models
 from backend.db.seeder import seed_database
 from backend.routers import (
@@ -17,35 +20,78 @@ from backend.routers import (
     data_upload,
 )
 
+# Logging configuration
+logging.basicConfig(
+    level=getattr(logging, settings.LOG_LEVEL, logging.INFO),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
 logger = logging.getLogger("backend.main")
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: ensure tables exist and seed database if empty
+    logger.info(f"Starting {settings.APP_NAME} in [{settings.ENVIRONMENT}] mode...")
     logger.info("Initializing VIGILANT-MPLAD database schema...")
-    Base.metadata.create_all(bind=engine)
     try:
+        Base.metadata.create_all(bind=engine)
         seed_database()
     except Exception as e:
-        logger.warning(f"Notice during startup database seed: {e}")
+        logger.warning(f"Notice during startup database initialization: {e}")
     yield
     # Shutdown
-    logger.info("VIGILANT-MPLAD backend shutting down.")
+    logger.info(f"{settings.APP_NAME} backend shutting down cleanly.")
 
 
 app = FastAPI(
-    title="VIGILANT-MPLAD API",
+    title=settings.APP_NAME,
     description="Backend REST API & ML Risk Intelligence Engine for MPLAD Scheme Monitoring",
-    version="1.2.0",
+    version=settings.APP_VERSION,
+    docs_url="/docs" if settings.ENVIRONMENT != "production" or settings.DEBUG else "/api/docs",
+    redoc_url="/redoc" if settings.ENVIRONMENT != "production" or settings.DEBUG else None,
     lifespan=lifespan
 )
+
+# Production Security Headers Middleware
+@app.middleware("http")
+async def add_security_and_timing_headers(request: Request, call_next):
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = (time.time() - start_time) * 1000.0
+
+    # Add performance telemetry header
+    response.headers["X-Process-Time-Ms"] = f"{process_time:.2f}"
+    
+    # Add enterprise security headers
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
+
+    return response
+
+
+# Global Exception Handler (Sanitized for Production)
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled error on {request.method} {request.url.path}: {exc}", exc_info=settings.DEBUG)
+    
+    detail = str(exc) if settings.DEBUG or settings.ENVIRONMENT != "production" else "An internal server error occurred."
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "error": "Internal Server Error",
+            "detail": detail,
+            "path": request.url.path
+        }
+    )
+
 
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -62,16 +108,42 @@ app.include_router(audit.router)
 app.include_router(data_upload.router)
 
 
+# Health & Readiness Probes
 @app.get("/api/health", tags=["Health"])
 def health_check():
+    """General operational health check."""
     return {
         "status": "OPERATIONAL",
-        "service": "VIGILANT-MPLAD API",
-        "version": "1.2.0",
+        "service": settings.APP_NAME,
+        "version": settings.APP_VERSION,
+        "environment": settings.ENVIRONMENT,
         "governmentContext": "Ministry of Statistics and Programme Implementation (MoSPI)"
     }
 
 
+@app.get("/api/health/live", tags=["Health"])
+def liveness_probe():
+    """Kubernetes / Container Liveness probe."""
+    return {"status": "LIVE"}
+
+
+@app.get("/api/health/ready", tags=["Health"])
+def readiness_probe():
+    """Kubernetes / Load Balancer Readiness probe that verifies DB connectivity."""
+    db_health = check_db_health()
+    is_ready = db_health.get("status") == "HEALTHY"
+    status_code = status.HTTP_200_OK if is_ready else status.HTTP_503_SERVICE_UNAVAILABLE
+
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "status": "READY" if is_ready else "NOT_READY",
+            "database": db_health,
+            "version": settings.APP_VERSION
+        }
+    )
+
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("backend.main:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("backend.main:app", host=settings.HOST, port=settings.PORT, reload=settings.DEBUG)
