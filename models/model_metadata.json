@@ -1,6 +1,6 @@
 {
   "model_version": "1.2.0",
-  "last_run": "2026-09-05T16:39:38.933063",
+  "last_run": "2026-09-05T16:57:04.396925",
   "algorithm": "Isolation Forest + LOF + Deterministic Rules",
   "training_rows": 28706,
   "features_used": [

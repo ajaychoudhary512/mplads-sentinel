@@ -12,8 +12,8 @@ if not exist .env (
     echo.
 )
 
-echo [1/3] Building production frontend bundle...
-call npm run build
+echo [1/3] Building production frontend bundle in frontend/ folder...
+call npm --prefix frontend run build
 if %errorlevel% neq 0 (
     echo [ERROR] Frontend build failed!
     pause
@@ -40,7 +40,7 @@ echo ===========================================================================
 echo.
 
 start "MPLADS Backend API" cmd /k "python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 4"
-start "MPLADS Frontend UI" cmd /k "npm run preview -- --host 0.0.0.0 --port 8443"
+start "MPLADS Frontend UI" cmd /k "npm --prefix frontend run preview -- --host 0.0.0.0 --port 8443"
 
 echo Both services have been launched in dedicated terminal windows!
 pause
