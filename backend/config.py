@@ -4,11 +4,26 @@ Loads settings from environment variables and .env file with production-ready de
 import os
 from pathlib import Path
 from typing import List
-from dotenv import load_dotenv
-
 # Load .env file from workspace root or current directory
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(PROJECT_ROOT / ".env")
+env_file = PROJECT_ROOT / ".env"
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv(env_file)
+except ImportError:
+    if env_file.exists():
+        try:
+            with open(env_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        k, v = k.strip(), v.strip().strip("'\"")
+                        if k and k not in os.environ:
+                            os.environ[k] = v
+        except Exception:
+            pass
 
 
 class Settings:
