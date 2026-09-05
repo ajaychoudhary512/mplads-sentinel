@@ -12,9 +12,20 @@ logs/
 .claude-replay.*
 .tmp-*
 
-# Platform-managed agentplat state, not project source. In the
-# client-initiated single-repo workspace layout (make's `Path: "."` spec) the
-# repo root IS the workspace root, so these land inside this repo rather than
-# beside it.
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+data/uploads/
+data/sample_test_batch.csv
+data/processed/*_V*.csv
+
+# Platform-managed agentplat state
 /.plugins/
 /.opencode-skills/
+

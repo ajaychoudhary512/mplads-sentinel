@@ -1,0 +1,7 @@
+filename,classified_type,confidence_score,total_raw_rows,total_raw_cols,missing_expected_columns,status
+Allocated Limit for Honble MPs.xlsx,allocation,1.05,544,5,None,VALID
+Amount consented for Calamity.xlsx,calamity,1.05,13,6,None,VALID
+Expenditure on Completed and On-going Works as on Date.xlsx,expenditure,1.05,5001,11,None,VALID
+Works Completed.xlsx,completed,1.05,22001,11,None,VALID
+Works Recommended.xlsx,recommended,1.05,5001,11,None,VALID
+Works Sanctioned.xlsx,sanctioned,1.05,9001,12,None,VALID

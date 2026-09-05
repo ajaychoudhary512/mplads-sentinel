@@ -1,0 +1,17 @@
+{
+  "run_completed_at": "2026-09-02T20:30:43.106270",
+  "projects_analyzed": 448,
+  "master_rows": 448,
+  "critical_projects": 1,
+  "high_projects": 11,
+  "medium_projects": 54,
+  "low_projects": 382,
+  "high_or_critical_projects": 12,
+  "total_sanctioned_amount": 570137398.64,
+  "total_expenditure_amount": 347778836.0,
+  "utilization_percent": 61.0,
+  "total_positive_cost_overrun": 253454645.0,
+  "anomaly_projects": 143,
+  "transaction_rows_analyzed": 5000,
+  "high_or_medium_transactions": 864
+}
