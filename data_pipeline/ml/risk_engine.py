@@ -5,10 +5,6 @@ from typing import Dict, Any, Tuple, Optional
 from datetime import datetime
 import numpy as np
 import pandas as pd
-import joblib
-from sklearn.ensemble import IsolationForest
-from sklearn.neighbors import LocalOutlierFactor
-from sklearn.preprocessing import StandardScaler
 
 logger = logging.getLogger("data_pipeline.ml_engine")
 
@@ -73,6 +69,7 @@ class MLRiskEngine:
 
     def load_models(self) -> bool:
         """Attempts to load pre-trained models from disk."""
+        import joblib
         meta_path = self.models_dir / "model_metadata.json"
         if meta_path.exists():
             try:
@@ -106,6 +103,7 @@ class MLRiskEngine:
 
     def prepare_features(self, df: pd.DataFrame) -> Tuple[np.ndarray, pd.DataFrame]:
         """Extracts, cleans, and scales the feature matrix."""
+        from sklearn.preprocessing import StandardScaler
         if len(df) == 0:
             return np.empty((0, len(ML_FEATURES))), pd.DataFrame(columns=ML_FEATURES)
 
@@ -143,6 +141,8 @@ class MLRiskEngine:
 
     def fit_and_score(self, df: pd.DataFrame) -> pd.DataFrame:
         """Runs complete ML inference or training pipeline and computes final risk scores."""
+        from sklearn.ensemble import IsolationForest
+        from sklearn.neighbors import LocalOutlierFactor
         m = df.copy()
         if len(m) == 0:
             m["ml_anomaly_score"] = 0.0

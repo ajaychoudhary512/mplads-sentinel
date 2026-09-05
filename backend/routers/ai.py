@@ -10,7 +10,6 @@ from sqlalchemy import desc, func
 
 from backend.db.database import get_db, SessionLocal
 from backend.db.models import Project, Alert, AIAnalysisRun, AuditLog, DatasetVersion
-from data_pipeline.pipeline import MPLADDataPipeline
 
 logger = logging.getLogger("backend.ai")
 router = APIRouter(prefix="/api/ai", tags=["AI Risk Intelligence"])
