@@ -22,6 +22,10 @@ function RiskBadge({ level }: { level: string }) {
   );
 }
 
+function ChartPlaceholder({ message }: { message: string }) {
+  return <div style={{ height: "160px", display: "grid", placeItems: "center", border: "1px dashed #CBD5E1", borderRadius: "4px", color: "#64748B", fontSize: "12px", background: "#F8FAFC", textAlign: "center", padding: "12px" }}>{message}</div>;
+}
+
 export function Dashboard({ onNavigate }: DashboardProps) {
   const { activeVersion, activeMetadata, openUploadModal } = useDataset();
 
@@ -44,7 +48,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           api.getProjectStatus(activeVersion),
           api.getRiskTrend(activeVersion),
           api.listAlerts({ dataset_version: activeVersion, severity: "All" }),
-          api.getDistrictExpenditure(6, activeVersion),
+          api.getDistrictRisk(6, activeVersion),
         ]);
 
         if (!isMounted) return;
@@ -57,9 +61,10 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         if (distRes && distRes.length > 0) {
           setDistrictRisk(distRes.map((d: any) => ({
             district: d.district,
-            high: Math.round(d.expenditure * 0.3),
-            medium: Math.round(d.expenditure * 0.5),
-            low: Math.round(d.expenditure * 0.2)
+            high: d.high ?? 0,
+            medium: d.medium ?? 0,
+            low: d.low ?? 0,
+            total: d.total ?? ((d.high ?? 0) + (d.medium ?? 0) + (d.low ?? 0))
           })));
         } else {
           setDistrictRisk([]);
@@ -212,14 +217,14 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         <div style={{ background: "#fff", border: "1px solid #E2E5EA", borderRadius: "3px", padding: "16px" }}>
           <div style={{ fontSize: "13px", fontWeight: 700, color: "#1A1D23", marginBottom: "4px" }}>Project Status Distribution</div>
           <div style={{ fontSize: "11px", color: "#9AA3B0", marginBottom: "10px" }}>Dataset {activeVersion}: {totalProjectsFormatted} Projects</div>
-          <ResponsiveContainer width="100%" height={160}>
+          {statusData.some(item => Number(item.value) > 0) ? <ResponsiveContainer width="100%" height={160}>
             <PieChart>
               <Pie data={statusData} cx="50%" cy="50%" innerRadius={45} outerRadius={70} dataKey="value">
                 {statusData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
               </Pie>
               <Tooltip formatter={(v) => [v, ""]} contentStyle={{ fontSize: "12px", borderRadius: "3px" }} />
             </PieChart>
-          </ResponsiveContainer>
+          </ResponsiveContainer> : <ChartPlaceholder message="Project-status data will appear after the dataset is analysed." />}
           <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
             {statusData.map((d, i) => (
               <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: "11px" }}>
@@ -237,7 +242,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         <div style={{ background: "#fff", border: "1px solid #E2E5EA", borderRadius: "3px", padding: "16px" }}>
           <div style={{ fontSize: "13px", fontWeight: 700, color: "#1A1D23", marginBottom: "4px" }}>Risk Trend ({activeVersion})</div>
           <div style={{ fontSize: "11px", color: "#9AA3B0", marginBottom: "10px" }}>Mar–Aug 2026</div>
-          <ResponsiveContainer width="100%" height={160}>
+          {riskTrend.length > 0 ? <ResponsiveContainer width="100%" height={160}>
             <LineChart data={riskTrend} margin={{ top: 0, right: 10, left: -25, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#F0F1F4" />
               <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#9AA3B0" }} />
@@ -246,7 +251,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
               <Line type="monotone" dataKey="high" stroke="#EA580C" strokeWidth={2} dot={false} name="High" />
               <Line type="monotone" dataKey="critical" stroke="#DC2626" strokeWidth={2} dot={false} name="Critical" />
             </LineChart>
-          </ResponsiveContainer>
+          </ResponsiveContainer> : <ChartPlaceholder message="Risk trend is being prepared for this dataset." />}
           <div style={{ display: "flex", gap: "10px", marginTop: "4px" }}>
             <span style={{ fontSize: "11px", color: "#DC2626", display: "flex", alignItems: "center", gap: "3px" }}><span>—</span> Critical</span>
             <span style={{ fontSize: "11px", color: "#EA580C", display: "flex", alignItems: "center", gap: "3px" }}><span>—</span> High</span>
@@ -260,17 +265,35 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         <div style={{ background: "#fff", border: "1px solid #E2E5EA", borderRadius: "3px", padding: "16px" }}>
           <div style={{ fontSize: "13px", fontWeight: 700, color: "#1A1D23", marginBottom: "4px" }}>District-wise Risk Distribution</div>
           <div style={{ fontSize: "11px", color: "#9AA3B0", marginBottom: "12px" }}>Dataset {activeVersion} | Source: MoSPI Project Records</div>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={districtRisk} layout="vertical" margin={{ top: 0, right: 10, left: 40, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F0F1F4" horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 10, fill: "#9AA3B0" }} />
-              <YAxis type="category" dataKey="district" tick={{ fontSize: 10, fill: "#3A4050" }} />
-              <Tooltip contentStyle={{ fontSize: "12px", borderRadius: "3px" }} />
-              <Bar dataKey="high" name="High Risk" fill="#EA580C" stackId="a" />
-              <Bar dataKey="medium" name="Medium" fill="#D97706" stackId="a" />
-              <Bar dataKey="low" name="Low Risk" fill="#86AFDF" stackId="a" radius={[0, 2, 2, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          {districtRisk.length > 0 ? (
+            <>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={districtRisk} layout="vertical" margin={{ top: 0, right: 15, left: 10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#F0F1F4" horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 10, fill: "#9AA3B0" }} />
+                  <YAxis type="category" dataKey="district" tick={{ fontSize: 10, fill: "#3A4050" }} width={95} />
+                  <Tooltip
+                    formatter={(value: any, name: any) => [`${value} projects`, name]}
+                    contentStyle={{ fontSize: "12px", borderRadius: "3px" }}
+                  />
+                  <Bar dataKey="high" name="High Risk" fill="#EA580C" stackId="a" />
+                  <Bar dataKey="medium" name="Medium Risk" fill="#D97706" stackId="a" />
+                  <Bar dataKey="low" name="Low Risk" fill="#86AFDF" stackId="a" radius={[0, 2, 2, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+              <div style={{ display: "flex", gap: "14px", marginTop: "6px", justifyContent: "flex-end" }}>
+                <span style={{ fontSize: "11px", color: "#EA580C", display: "flex", alignItems: "center", gap: "4px" }}>
+                  <span style={{ display: "inline-block", width: "8px", height: "8px", background: "#EA580C", borderRadius: "2px" }}></span> High Risk
+                </span>
+                <span style={{ fontSize: "11px", color: "#D97706", display: "flex", alignItems: "center", gap: "4px" }}>
+                  <span style={{ display: "inline-block", width: "8px", height: "8px", background: "#D97706", borderRadius: "2px" }}></span> Medium Risk
+                </span>
+                <span style={{ fontSize: "11px", color: "#86AFDF", display: "flex", alignItems: "center", gap: "4px" }}>
+                  <span style={{ display: "inline-block", width: "8px", height: "8px", background: "#86AFDF", borderRadius: "2px" }}></span> Low Risk
+                </span>
+              </div>
+            </>
+          ) : <ChartPlaceholder message="District risk distribution data is not present in the active dataset." />}
         </div>
 
         {/* Priority Actions */}

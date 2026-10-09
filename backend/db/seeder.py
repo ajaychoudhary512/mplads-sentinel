@@ -135,7 +135,9 @@ def seed_database(db: Session = None, force_reseed: bool = False):
         logger.info(f"Seeded {len(projects_to_insert):,} projects for V1.")
 
         # 2. Expenditures
-        tx_csv = Path("data/processed/transaction_anomaly_report.csv")
+        tx_csv = Path("data/processed/transaction_anomaly_report_V1.csv")
+        if not tx_csv.exists():
+            tx_csv = Path("data/processed/transaction_anomaly_report.csv")
         if tx_csv.exists():
             tx_df = pd.read_csv(tx_csv).replace({np.nan: None})
             tx_objects = []
@@ -149,7 +151,7 @@ def seed_database(db: Session = None, force_reseed: bool = False):
                     date=pd.to_datetime(r.get("date")).to_pydatetime() if pd.notna(r.get("date")) else None,
                     expected_range=str(r.get("expected_range") or ""),
                     deviation_percent=float(r.get("deviation_percent") or 0.0),
-                    ai_flag=str(r.get("ai_flag") or "LOW"),
+                    ai_flag=str(r.get("ai_flag") or "LOW").upper(),
                     payment_status=str(r.get("payment_status") or "")
                 )
                 tx_objects.append(tx_obj)

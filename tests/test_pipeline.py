@@ -1,5 +1,6 @@
 import os
 import unittest
+import tempfile
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -15,12 +16,33 @@ from data_pipeline.normalization.normalizer import (
 from data_pipeline.ingestion.loader import IngestionPipeline, find_header_row, classify_dataset
 from data_pipeline.features.master_builder import MasterDatasetBuilder
 from data_pipeline.risk.rule_engine import DeterministicRuleEngine
-from data_pipeline.ml.risk_engine import MLRiskEngine
+from data_pipeline.ml.risk_engine import MLRiskEngine, ML_FEATURES
 from data_pipeline.exports.generator import AnalyticalExportGenerator
 from data_pipeline.pipeline import MPLADDataPipeline
 
 
 class TestMPLADPipeline(unittest.TestCase):
+
+    def test_risk_scoring_is_entity_specific_and_magnitude_aware(self):
+        """Different project evidence must not collapse to one shared score."""
+        rows = 30
+        base = {feature: np.linspace(1, rows, rows, dtype=float) for feature in ML_FEATURES}
+        df = pd.DataFrame(base)
+        df["rule_score"] = 0.0
+        # Give two projects progressively stronger rule evidence. This
+        # exercises the final ML + rule combination.
+        df.loc[rows - 2, "rule_score"] = 20.0
+        df.loc[rows - 1, "rule_score"] = 60.0
+
+        with tempfile.TemporaryDirectory() as models_dir:
+            scored = MLRiskEngine(models_dir=models_dir).fit_and_score(df)
+
+        self.assertGreater(scored["risk_score"].nunique(), 10)
+        self.assertGreater(
+            scored.loc[rows - 1, "risk_score"],
+            scored.loc[rows - 2, "risk_score"]
+        )
+        self.assertTrue(scored["risk_data_coverage_pct"].eq(100.0).all())
 
     def test_normalization_utilities(self):
         # Text normalization

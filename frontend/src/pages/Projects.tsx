@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { api } from "../services/api";
 import { useDataset } from "../context/DatasetContext";
+import { ALL_INDIA_STATES, ALL_INDIA_STATES_AND_DISTRICTS, getDistrictsForState } from "../data/indiaDistricts";
 
 interface ProjectsProps {
   onNavigate: (page: any, data?: any) => void;
@@ -49,6 +50,7 @@ export function Projects({ onNavigate }: ProjectsProps) {
 
   const [search, setSearch] = useState("");
   const [filterState, setFilterState] = useState("All States");
+  const [filterDistrict, setFilterDistrict] = useState("All Districts");
   const [filterRisk, setFilterRisk] = useState("All Risk Levels");
   const [filterStatus, setFilterStatus] = useState("All Statuses");
   const [filterCategory, setFilterCategory] = useState("All Categories");
@@ -56,6 +58,10 @@ export function Projects({ onNavigate }: ProjectsProps) {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 8;
+
+  const availableDistricts = useMemo(() => {
+    return getDistrictsForState(filterState);
+  }, [filterState]);
 
   useEffect(() => {
     async function loadProjects() {
@@ -65,6 +71,7 @@ export function Projects({ onNavigate }: ProjectsProps) {
           dataset_version: activeVersion,
           search,
           state: filterState,
+          district: filterDistrict,
           risk_level: filterRisk,
           status: filterStatus,
           category: filterCategory,
@@ -78,7 +85,8 @@ export function Projects({ onNavigate }: ProjectsProps) {
         setTotal(res.total);
         setTotalPages(res.total_pages);
         if (res.available_states?.length) {
-          setAvailableStates(["All States", ...res.available_states]);
+          const combined = Array.from(new Set(["All States", ...res.available_states, ...ALL_INDIA_STATES]));
+          setAvailableStates(combined);
         }
         if (res.available_categories?.length) {
           setAvailableCategories(["All Categories", ...res.available_categories]);
@@ -95,7 +103,7 @@ export function Projects({ onNavigate }: ProjectsProps) {
     }, 150);
 
     return () => clearTimeout(timer);
-  }, [activeVersion, search, filterState, filterRisk, filterStatus, filterCategory, sortCol, sortDir, page]);
+  }, [activeVersion, search, filterState, filterDistrict, filterRisk, filterStatus, filterCategory, sortCol, sortDir, page]);
 
   const toggleSort = (col: string) => {
     const colMap: Record<string, string> = {
@@ -141,7 +149,7 @@ export function Projects({ onNavigate }: ProjectsProps) {
   };
 
   const handleExport = () => {
-    window.open("/api/reports/export?dataset_type=projects&format=csv", "_blank");
+    window.open(`/api/reports/export?dataset_type=projects&format=csv&dataset_version=${encodeURIComponent(activeVersion)}`, "_blank");
   };
 
   return (
@@ -150,12 +158,12 @@ export function Projects({ onNavigate }: ProjectsProps) {
         <div>
           <h1 style={{ fontSize: "18px", fontWeight: 700, color: "#1B3A6B", margin: 0 }}>MPLAD Projects</h1>
           <div style={{ fontSize: "12px", color: "#6B7480", marginTop: "2px" }}>
-            Financial Year 2025–26 | Total: {total.toLocaleString()} projects {loading && "(Loading...)"}
+            Financial Year 2025–26 | Dataset: <strong>{activeMetadata?.dataset_name || activeVersion}</strong> | Total: {total.toLocaleString()} projects {loading && "(Loading...)"} · <strong>All India Coverage (36 States & UTs, 780+ Districts)</strong>
           </div>
         </div>
         <div style={{ display: "flex", gap: "8px" }}>
           <button onClick={handleExport} style={{ padding: "7px 14px", background: "#fff", color: "#3A4050", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", cursor: "pointer" }}>
-            Export Excel
+            Export CSV
           </button>
           <button onClick={() => onNavigate("reports")} style={{ padding: "7px 14px", background: "#1B3A6B", color: "#fff", border: "none", borderRadius: "3px", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>
             Generate Report
@@ -172,23 +180,67 @@ export function Projects({ onNavigate }: ProjectsProps) {
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(1); }}
             placeholder="Search projects, IDs, districts..."
-            style={{ padding: "6px 10px", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", width: "220px", outline: "none" }}
+            style={{ padding: "6px 10px", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", width: "190px", outline: "none" }}
           />
         </div>
-        {[
-          { label: "State", value: filterState, set: setFilterState, options: availableStates },
-          { label: "Category", value: filterCategory, set: setFilterCategory, options: availableCategories },
-          { label: "Risk Level", value: filterRisk, set: setFilterRisk, options: ["All Risk Levels", "Critical", "High", "Medium", "Low"] },
-          { label: "Status", value: filterStatus, set: setFilterStatus, options: ["All Statuses", "Completed", "Under Implementation", "Delayed", "Verification Required"] },
-        ].map(f => (
-          <div key={f.label}>
-            <div style={{ fontSize: "11px", fontWeight: 600, color: "#6B7480", marginBottom: "4px" }}>{f.label}</div>
-            <select value={f.value} onChange={e => { f.set(e.target.value); setPage(1); }} style={{ padding: "6px 10px", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", background: "#fff", minWidth: "140px" }}>
-              {f.options.map(o => <option key={o}>{o}</option>)}
-            </select>
+
+        {/* State */}
+        <div>
+          <div style={{ fontSize: "11px", fontWeight: 600, color: "#6B7480", marginBottom: "4px" }}>State / UT</div>
+          <select value={filterState} onChange={e => { setFilterState(e.target.value); setFilterDistrict("All Districts"); setPage(1); }} style={{ padding: "6px 10px", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", background: "#fff", minWidth: "140px" }}>
+            <option value="All States">All States / UTs (36)</option>
+            {ALL_INDIA_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+
+        {/* District */}
+        <div>
+          <div style={{ fontSize: "11px", fontWeight: 600, color: "#6B7480", marginBottom: "4px" }}>
+            District {filterState !== "All States" ? `(${availableDistricts.length})` : "(780+)"}
           </div>
-        ))}
-        <button onClick={() => { setSearch(""); setFilterState("All States"); setFilterRisk("All Risk Levels"); setFilterStatus("All Statuses"); setFilterCategory("All Categories"); setPage(1); }}
+          <select value={filterDistrict} onChange={e => { setFilterDistrict(e.target.value); setPage(1); }} style={{ padding: "6px 10px", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", background: "#fff", minWidth: "160px", maxWidth: "220px" }}>
+            <option value="All Districts">All Districts ({filterState !== "All States" ? availableDistricts.length : "780+"})</option>
+            {filterState === "All States" ? (
+              Object.entries(ALL_INDIA_STATES_AND_DISTRICTS).map(([st, dists]) => (
+                <optgroup key={st} label={st}>
+                  {dists.map(d => (
+                    <option key={`${st}-${d}`} value={d}>{d}</option>
+                  ))}
+                </optgroup>
+              ))
+            ) : (
+              availableDistricts.map(d => (
+                <option key={d} value={d}>{d}</option>
+              ))
+            )}
+          </select>
+        </div>
+
+        {/* Category */}
+        <div>
+          <div style={{ fontSize: "11px", fontWeight: 600, color: "#6B7480", marginBottom: "4px" }}>Category</div>
+          <select value={filterCategory} onChange={e => { setFilterCategory(e.target.value); setPage(1); }} style={{ padding: "6px 10px", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", background: "#fff", minWidth: "130px" }}>
+            {availableCategories.map(o => <option key={o}>{o}</option>)}
+          </select>
+        </div>
+
+        {/* Risk Level */}
+        <div>
+          <div style={{ fontSize: "11px", fontWeight: 600, color: "#6B7480", marginBottom: "4px" }}>Risk Level</div>
+          <select value={filterRisk} onChange={e => { setFilterRisk(e.target.value); setPage(1); }} style={{ padding: "6px 10px", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", background: "#fff", minWidth: "120px" }}>
+            {["All Risk Levels", "Critical", "High", "Medium", "Low"].map(o => <option key={o}>{o}</option>)}
+          </select>
+        </div>
+
+        {/* Status */}
+        <div>
+          <div style={{ fontSize: "11px", fontWeight: 600, color: "#6B7480", marginBottom: "4px" }}>Status</div>
+          <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1); }} style={{ padding: "6px 10px", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", background: "#fff", minWidth: "130px" }}>
+            {["All Statuses", "Completed", "Under Implementation", "Delayed", "Verification Required"].map(o => <option key={o}>{o}</option>)}
+          </select>
+        </div>
+
+        <button onClick={() => { setSearch(""); setFilterState("All States"); setFilterDistrict("All Districts"); setFilterRisk("All Risk Levels"); setFilterStatus("All Statuses"); setFilterCategory("All Categories"); setPage(1); }}
           style={{ padding: "6px 12px", background: "#F0F1F4", color: "#3A4050", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", cursor: "pointer", alignSelf: "flex-end" }}>
           Reset
         </button>

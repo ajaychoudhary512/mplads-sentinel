@@ -102,7 +102,13 @@ class MLRiskEngine:
         return self.isolation_forest is not None
 
     def prepare_features(self, df: pd.DataFrame) -> Tuple[np.ndarray, pd.DataFrame]:
-        """Extracts, cleans, and scales the feature matrix."""
+        """Extracts, cleans, and scales the feature matrix for this analysis.
+
+        Anomaly scores are relative to the uploaded cohort.  Reusing a scaler
+        trained on an older upload silently converts missing values and new
+        ranges into stale feature values, which is a common source of repeated
+        risk scores.  The scaler is therefore fitted for each run.
+        """
         from sklearn.preprocessing import StandardScaler
         if len(df) == 0:
             return np.empty((0, len(ML_FEATURES))), pd.DataFrame(columns=ML_FEATURES)
@@ -126,16 +132,8 @@ class MLRiskEngine:
                 hi += 1.0
             X[col] = X[col].clip(lo, hi)
 
-        if self.scaler is None:
-            self.scaler = StandardScaler()
-            XS = self.scaler.fit_transform(X)
-        else:
-            try:
-                XS = self.scaler.transform(X)
-            except Exception:
-                # Re-fit scaler if feature shapes evolved
-                self.scaler = StandardScaler()
-                XS = self.scaler.fit_transform(X)
+        self.scaler = StandardScaler()
+        XS = self.scaler.fit_transform(X)
 
         return XS, X
 
@@ -157,26 +155,19 @@ class MLRiskEngine:
 
         XS, X_clean = self.prepare_features(m)
 
-        # Train / infer Isolation Forest
+        # Train on the current dataset. Isolation Forest and LOF are
+        # unsupervised, so their reference population must be the current
+        # upload rather than a previous dataset with unrelated distributions.
         logger.info("[ML] Isolation Forest started")
-        if self.isolation_forest is None:
-            logger.info(f"Fitting fresh Isolation Forest on {len(m)} records...")
-            contamination = min(max(0.05, 10.0 / max(len(m), 100.0)), 0.15)
-            self.isolation_forest = IsolationForest(
-                n_estimators=300,
-                contamination=contamination,
-                random_state=42,
-                n_jobs=-1
-            )
-            self.isolation_forest.fit(XS)
-
-        raw_anomaly = -self.isolation_forest.decision_function(XS)
-        lo, hi = np.quantile(raw_anomaly, [0.01, 0.99])
-        if hi <= lo:
-            hi = lo + 1e-9
-
-        m["ml_anomaly_score"] = np.clip(((raw_anomaly - lo) / (hi - lo)) * 100.0, 0, 100)
-        m["any_is_anomaly_v2"] = (m["ml_anomaly_score"] >= 70).astype(int)
+        contamination = min(max(0.05, 10.0 / max(len(m), 100.0)), 0.15)
+        self.isolation_forest = IsolationForest(
+            n_estimators=300,
+            contamination=contamination,
+            random_state=42,
+            n_jobs=-1
+        )
+        self.isolation_forest.fit(XS)
+        raw_if_anomaly = -self.isolation_forest.decision_function(XS)
         logger.info("[ML] Isolation Forest completed")
 
         # LOF Anomaly scoring
@@ -184,25 +175,36 @@ class MLRiskEngine:
             logger.info("[ML] LOF started")
             n_samples = len(XS)
             n_neighbors = min(20, max(2, n_samples - 1))
-            if self.lof is None or not hasattr(self.lof, "decision_function") or getattr(self.lof, "n_neighbors", 20) != n_neighbors:
-                self.lof = LocalOutlierFactor(n_neighbors=n_neighbors, novelty=True)
-                self.lof.fit(XS)
-            lof_scores = -self.lof.decision_function(XS)
-            lof_lo, lof_hi = np.quantile(lof_scores, [0.01, 0.99])
-            if lof_hi <= lof_lo:
-                lof_hi = lof_lo + 1e-9
-            m["lof_anomaly_score"] = np.clip(((lof_scores - lof_lo) / (lof_hi - lof_lo)) * 100.0, 0, 100)
-            m["any_is_anomaly_lof"] = (m["lof_anomaly_score"] >= 70).astype(int)
+            self.lof = LocalOutlierFactor(n_neighbors=n_neighbors, novelty=True)
+            self.lof.fit(XS)
+            raw_lof_anomaly = -self.lof.decision_function(XS)
             logger.info("[ML] LOF completed")
         except Exception as e:
             logger.warning(f"LOF scoring notice: {e}")
-            m["lof_anomaly_score"] = m["ml_anomaly_score"]
-            m["any_is_anomaly_lof"] = m["any_is_anomaly_v2"]
+            raw_lof_anomaly = raw_if_anomaly
+
+        # Combine both detectors after percentile calibration.  Ranking is
+        # robust to different detector scales and avoids a single min/max row
+        # flattening all other projects into the same score.
+        if_pct = pd.Series(raw_if_anomaly, index=m.index).rank(method="average", pct=True)
+        lof_pct = pd.Series(raw_lof_anomaly, index=m.index).rank(method="average", pct=True)
+        ensemble_pct = 0.65 * if_pct + 0.35 * lof_pct
+        m["ml_anomaly_score"] = np.round(np.clip((ensemble_pct - 0.05) / 0.95 * 100.0, 0, 100), 2)
+        m["lof_anomaly_score"] = np.round(np.clip((lof_pct - 0.05) / 0.95 * 100.0, 0, 100), 2)
+        m["any_is_anomaly_v2"] = (m["ml_anomaly_score"] >= 70).astype(int)
+        m["any_is_anomaly_lof"] = (m["lof_anomaly_score"] >= 70).astype(int)
 
         # Combined Weighted Risk Score
         ml_w = self.config.get("ml_weight", 0.60)
         rule_w = self.config.get("rule_weight", 0.40)
         rule_score = m["rule_score"] if "rule_score" in m.columns else 0.0
+
+        # Coverage remains an explicit confidence signal. It must not reduce
+        # the risk score itself: a well-supported outlier with a few missing
+        # optional fields is still an outlier, and suppressing it made the
+        # alert queue unrealistically sparse.
+        available = df.reindex(columns=ML_FEATURES).replace([np.inf, -np.inf], np.nan).notna().sum(axis=1)
+        m["risk_data_coverage_pct"] = np.round(available / len(ML_FEATURES) * 100.0, 1)
 
         m["risk_score"] = np.round(
             np.clip(ml_w * m["ml_anomaly_score"] + rule_w * rule_score, 0, 100),
@@ -213,33 +215,39 @@ class MLRiskEngine:
         low_max = self.config.get("low_max", 24.99)
         med_max = self.config.get("medium_max", 49.99)
         high_max = self.config.get("high_max", 74.99)
+        critical_min = self.config.get("critical_min", 75.0)
 
         m["risk_category"] = np.select(
             [
-                m["risk_score"] >= high_max,
-                m["risk_score"] >= med_max,
-                m["risk_score"] >= low_max
+                m["risk_score"] >= critical_min,
+                m["risk_score"] > med_max,
+                m["risk_score"] > low_max
             ],
             ["Critical", "High", "Medium"],
             default="Low"
         )
 
         m["risk_signal_strength"] = np.round(
-            np.clip(50.0 + (m["risk_score"] - 50.0) * 1.25, 0, 100),
-            1
+            np.clip(35.0 + m["risk_data_coverage_pct"] * 0.65, 35, 100), 1
         )
 
         # Save model metadata
         self.model_metadata = {
-            "model_version": "1.2.0",
+            "model_version": "1.3.0",
             "last_run": datetime.now().isoformat(),
-            "algorithm": "Isolation Forest + LOF + Deterministic Rules",
+            "algorithm": "Per-dataset Isolation Forest + LOF Ensemble + Magnitude-aware Rules",
             "training_rows": len(m),
             "features_used": ML_FEATURES,
             "feature_count": len(ML_FEATURES),
             "contamination": 0.05,
             "weights": {"ml_weight": ml_w, "rule_weight": rule_w},
-            "thresholds": {"low_max": low_max, "medium_max": med_max, "high_max": high_max}
+            "calibration": "ranked ensemble; data coverage reported as confidence",
+            "thresholds": {
+                "low_max": low_max,
+                "medium_max": med_max,
+                "high_max": high_max,
+                "critical_min": critical_min,
+            }
         }
         self._save_metadata()
 

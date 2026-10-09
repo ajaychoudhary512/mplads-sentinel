@@ -16,6 +16,19 @@ def upper_quantile(s: pd.Series, q: float, minimum: float = 1.0) -> float:
     return max(float(s_clean.quantile(q)), float(minimum))
 
 
+def severity_above(value: pd.Series, threshold: float) -> pd.Series:
+    """Return a 0-1 severity that grows after a data-driven threshold.
+
+    The old rules used only a yes/no flag.  That made a project barely above
+    a threshold receive exactly the same rule contribution as one far beyond
+    it.  Flags are still retained for auditability, while this value preserves
+    the magnitude of the observed deviation for the final score.
+    """
+    safe_threshold = max(float(threshold), 1e-9)
+    numeric = pd.to_numeric(value, errors="coerce").fillna(0.0)
+    return np.clip(0.5 + 0.5 * ((numeric - safe_threshold) / safe_threshold), 0.0, 1.0) * (numeric >= safe_threshold)
+
+
 class DeterministicRuleEngine:
     """Evaluates transparent domain rules and anomaly criteria on MPLAD master dataset."""
 
@@ -135,19 +148,51 @@ class DeterministicRuleEngine:
         ]
         m["anomaly_count"] = m[rule_cols].sum(axis=1)
 
-        # Compute Rule Score
+        # Compute a magnitude-aware rule score.  Each flag remains binary for
+        # filtering and explanations, but the score records how far this
+        # particular project is from its relevant threshold.
         weights = self.config.get("rule_weights", {})
-        rule_score_calc = (
-            m["flag_unusual_expenditure"] * weights.get("flag_unusual_expenditure", 18)
-            + m["flag_extreme_cost_overrun"] * weights.get("flag_extreme_cost_overrun", 18)
-            + m["flag_delayed_project"] * weights.get("flag_delayed_project", 14)
-            + m["flag_suspicious_vendor"] * weights.get("flag_suspicious_vendor", 14)
-            + m["flag_duplicate_payment"] * weights.get("flag_duplicate_payment", 18)
-            + m["flag_geographic_inconsistency"] * weights.get("flag_geographic_inconsistency", 8)
-            + m["flag_cost_overrun"] * weights.get("flag_cost_overrun", 8)
-            + m["flag_transaction_outlier"] * weights.get("flag_transaction_outlier", 8)
+        overrun_pct = pd.to_numeric(m["cost_deviation_pct"], errors="coerce").clip(lower=0).fillna(0.0)
+        duration = pd.to_numeric(m["project_duration_days"], errors="coerce").fillna(0.0)
+        delay_days = pd.to_numeric(m["completion_delay_days"], errors="coerce").fillna(0.0)
+        vendor_projects = pd.to_numeric(m["vendor_project_count"], errors="coerce").fillna(0.0)
+        vendor_concentration = pd.to_numeric(m["vendor_concentration"], errors="coerce").fillna(0.0)
+        vendor_states = pd.to_numeric(m["vendor_state_count"], errors="coerce").fillna(0.0)
+        expenditure = pd.to_numeric(m["expenditure_amount"], errors="coerce").fillna(0.0)
+
+        # Store the component severities as first-class output so an auditor
+        # can see why two projects with the same flag have different scores.
+        m["severity_cost_overrun"] = np.where(
+            m["flag_cost_overrun"].eq(1),
+            np.clip(overrun_pct / max(thresholds["cost_overrun_pct"], 1.0), 0.05, 1.0),
+            0.0,
         )
-        m["rule_score"] = np.clip(rule_score_calc, 0, 100)
+        m["severity_extreme_cost_overrun"] = severity_above(overrun_pct, thresholds["cost_overrun_pct"])
+        m["severity_delay"] = np.maximum(
+            severity_above(duration, thresholds["duration_days"]),
+            severity_above(delay_days, 180.0),
+        )
+        # A text status can be a valid delay signal even when dates are absent.
+        m.loc[m["flag_delayed_project"].eq(1) & m["severity_delay"].eq(0), "severity_delay"] = 0.5
+        m["severity_vendor"] = np.maximum(
+            severity_above(vendor_projects, thresholds["vendor_project_count"]),
+            severity_above(vendor_concentration, 0.40),
+        )
+        m["severity_duplicate_payment"] = m["flag_duplicate_payment"].astype(float)
+        m["severity_geographic"] = np.clip((vendor_states - 3.0) / 3.0, 0.0, 1.0)
+        m["severity_unusual_expenditure"] = severity_above(expenditure, thresholds["transaction_amount"])
+
+        rule_score_calc = (
+            m["severity_unusual_expenditure"] * weights.get("flag_unusual_expenditure", 18)
+            + m["severity_extreme_cost_overrun"] * weights.get("flag_extreme_cost_overrun", 18)
+            + m["severity_delay"] * weights.get("flag_delayed_project", 14)
+            + m["severity_vendor"] * weights.get("flag_suspicious_vendor", 14)
+            + m["severity_duplicate_payment"] * weights.get("flag_duplicate_payment", 18)
+            + m["severity_geographic"] * weights.get("flag_geographic_inconsistency", 8)
+            + m["severity_cost_overrun"] * weights.get("flag_cost_overrun", 8)
+            + m["severity_unusual_expenditure"] * weights.get("flag_transaction_outlier", 8)
+        )
+        m["rule_score"] = np.round(np.clip(rule_score_calc, 0, 100), 2)
 
         # Anomaly Type Labeling
         anomaly_labels = [

@@ -88,7 +88,7 @@ export default function App() {
           {currentPage === "ai-risk" && <AIRisk onNavigate={handleNavigate} />}
           {currentPage === "fraud-alerts" && <FraudAlerts onNavigate={handleNavigate} />}
           {currentPage === "geo-monitoring" && <GeoMonitoring onNavigate={handleNavigate} />}
-          {currentPage === "financial" && <FinancialAnalytics />}
+          {currentPage === "financial" && <FinancialAnalytics onNavigate={handleNavigate} />}
           {currentPage === "vendors" && <Vendors />}
           {currentPage === "reports" && <Reports />}
           {currentPage === "audit-trail" && <AuditTrail />}

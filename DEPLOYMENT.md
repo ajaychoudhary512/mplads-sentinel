@@ -1,123 +1,154 @@
-# Production Deployment Guide (No Docker & Neon PostgreSQL)
+# MPLADS Sentinel — Deployment Guide
 
-This guide walks you through deploying **MPLADS Sentinel (e-drishti)** in production **without Docker**, using **Neon Serverless PostgreSQL**.
+**Architecture: Vercel (Frontend) + Render (Backend API) + Neon (PostgreSQL)**
+
+```
+[ Browser ]
+     │
+     ▼
+[ Vercel — React + Vite SPA ]
+ /api/* → proxied via vercel.json rewrites
+     │
+     ▼
+[ Render — FastAPI + Gunicorn ]
+     │
+     ▼ (SSL / TLS)
+[ Neon — Serverless PostgreSQL ]
+```
 
 ---
 
-## Architecture (No-Docker + Neon)
+## Step 1 — Set up Neon PostgreSQL
 
-```
-[ Frontend: Vercel / Netlify / Static Server ]
-                  │
-                  ▼
-[ Backend API: Render / Railway / VPS / Systemd ]
-                  │
-                  ▼ (TLS / SSL Connection Pool)
-[ Database: Neon Serverless PostgreSQL (neon.tech) ]
-```
-
----
-
-## Step 1: Setup Neon PostgreSQL Database
-
-1. Go to [https://neon.tech](https://neon.tech) and create a project (e.g. `mplads-sentinel`).
-2. In the Neon Console under **Connection Details**, select:
-   - **Role / User**: `neondb_owner`
-   - **Database**: `neondb`
-   - **Connection string**: Copy the connection string with `Pooled connection` or standard endpoint.
-   - Example format:
-     ```
-     postgresql://neondb_owner:npg_xyz123@ep-cool-morning-a5xyz.us-east-2.aws.neon.tech/neondb?sslmode=require
-     ```
-3. In your project root, open `.env` (or copy `.env.example` to `.env`):
-   ```ini
-   DATABASE_URL=postgresql://neondb_owner:npg_xyz123@ep-cool-morning-a5xyz.us-east-2.aws.neon.tech/neondb?sslmode=require
+1. Go to [neon.tech](https://neon.tech) → Create a project (e.g. `mplads-sentinel`)
+2. In **Connection Details**, copy the **Pooled connection** string:
+   ```
+   postgresql://neondb_owner:PASSWORD@ep-ENDPOINT.neon.tech/neondb?sslmode=require
+   ```
+3. Run the one-click migration to create tables and seed baseline data:
+   ```bash
+   # Set your Neon URL in .env first, then:
+   python backend/db/migrate_to_neon.py
    ```
 
 ---
 
-## Step 2: Initialize & Seed Neon Database
+## Step 2 — Deploy Backend on Render
 
-Run the 1-click migration and seeding command:
-```bash
-python backend/db/migrate_to_neon.py
-```
-This will:
-- Establish secure SSL connection with Neon.
-- Automatically create all 8 tables and indexes (`projects`, `expenditures`, `vendors`, `mps`, `alerts`, `dataset_versions`, `ai_analysis_runs`, `audit_logs`).
-- Seed the baseline 28,706 projects and risk intelligence records into Neon.
-- Verify table counts and query latency.
+1. Go to [render.com](https://render.com) → **New → Web Service**
+2. Connect your GitHub repository
+3. Configure the service:
+   | Setting | Value |
+   |---|---|
+   | **Runtime** | Python 3 |
+   | **Root Directory** | `.` (repo root) |
+   | **Build Command** | `pip install --upgrade pip && pip install -r requirements.txt` |
+   | **Start Command** | `gunicorn backend.main:app --worker-class uvicorn.workers.UvicornWorker --workers 1 --bind 0.0.0.0:$PORT --timeout 120` |
+   | **Health Check** | `/api/health/live` |
 
----
+4. Add these **Environment Variables** in Render Dashboard:
 
-## Step 3: Run / Deploy Backend (No Docker)
+   | Variable | Value |
+   |---|---|
+   | `DATABASE_URL` | Your Neon PostgreSQL connection string |
+   | `SECRET_KEY` | Random 32+ character string |
+   | `CORS_ORIGINS` | `https://your-app.vercel.app` |
+   | `ENVIRONMENT` | `production` |
+   | `DEBUG` | `false` |
+   | `AUTO_SEED` | `false` |
+   | `WEB_CONCURRENCY` | `1` (free tier) or `2` (paid) |
 
-### Option A: Local / Production Server Launch (Direct CLI)
-```bash
-# Multi-worker production ASGI server
-python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 4
-```
-
-### Option B: Cloud Hosting (Render / Railway / AWS App Runner)
-- **Root Directory**: `.`
-- **Build Command**: `pip install -r requirements.txt && pip install python-calamine`
-- **Start Command**: `uvicorn backend.main:app --host 0.0.0.0 --port $PORT --workers 4`
-- **Environment Variables**:
-  - `DATABASE_URL`: *(Your Neon connection string)*
-  - `ENVIRONMENT`: `production`
-  - `CORS_ORIGINS`: `https://your-frontend-domain.vercel.app,http://localhost:8443`
+5. Deploy → Note your **Render service URL** (e.g. `https://mplads-sentinel-api.onrender.com`)
 
 ---
 
-## Step 4: Build & Deploy Frontend (No Docker)
+## Step 3 — Deploy Frontend on Vercel
 
-### Option A: Deploy on Vercel / Netlify
-1. Connect your repository to **Vercel** or **Netlify**.
-2. **Build Settings**:
-   - Build Command: `npm run build`
-   - Output Directory: `dist`
-   - Install Command: `npm install`
-3. **Environment Variables**:
-   - `VITE_API_BASE_URL`: `https://your-backend-api.onrender.com` (Your deployed backend URL)
+1. Go to [vercel.com](https://vercel.com) → **New Project** → Import your repo
+2. Configure:
+   | Setting | Value |
+   |---|---|
+   | **Root Directory** | `frontend` |
+   | **Framework** | Vite |
+   | **Build Command** | `npm run build` |
+   | **Output Directory** | `dist` |
 
-### Option B: Native Server / VPS Hosting
+3. Add **Environment Variable**:
+   | Variable | Value |
+   |---|---|
+   | `VITE_API_BASE_URL` | *(leave empty — proxy rewrites handle routing)* |
+
+4. **Update `frontend/vercel.json`** — replace the Render URL in the `/api/:path*` rewrite:
+   ```json
+   {
+     "rewrites": [
+       {
+         "source": "/api/:path*",
+         "destination": "https://YOUR-RENDER-SERVICE.onrender.com/api/:path*"
+       },
+       { "source": "/(.*)", "destination": "/index.html" }
+     ]
+   }
+   ```
+
+5. Redeploy on Vercel after updating `vercel.json`
+
+6. Go back to Render and update `CORS_ORIGINS` to your Vercel URL.
+
+---
+
+## Step 4 — Verify Deployment
+
 ```bash
-# Build optimized static bundle
-npm run build
+# Check backend health
+curl https://your-api.onrender.com/api/health/ready
 
-# Serve bundle using high-performance Node serve or Python server
-npx serve -s dist -l 8443
-# OR
-npm run preview -- --host 0.0.0.0 --port 8443
+# Expected:
+# {"status":"READY","database":{"status":"HEALTHY","dialect":"postgresql","latency_ms":12.4},"version":"1.2.0"}
+```
+
+Then open your Vercel URL in the browser — the dashboard should load with all data.
+
+---
+
+## Local Development (No Docker)
+
+```bash
+# 1. Install Python deps
+pip install -r requirements.txt
+
+# 2. Start backend (uses local SQLite by default)
+python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
+
+# 3. Start frontend dev server (in a new terminal)
+npm --prefix frontend run dev
+# → http://localhost:8443
 ```
 
 ---
 
-## 1-Click Launch Scripts (Windows & Linux)
+## Docker Deployment (Self-hosted / VPS)
 
-For zero-friction native execution on your local machine / server:
+```bash
+# Copy and fill in your .env
+cp .env.example .env
+# Edit .env with your DATABASE_URL, SECRET_KEY, CORS_ORIGINS
 
-- **Windows**: Double click or run [`start-production.bat`](file:///c:/Users/jkgga/Downloads/mplads-sentinel-main/mplads-sentinel-main/start-production.bat)
-- **Linux/macOS**: Run [`./start-production.sh`](file:///c:/Users/jkgga/Downloads/mplads-sentinel-main/mplads-sentinel-main/start-production.sh)
+# Build and start
+docker compose up --build -d
+
+# Check logs
+docker compose logs -f
+```
+
+> **Note:** The Docker image builds the React frontend, copies `data/processed/` CSVs and ML model `.joblib` files into the image, and serves everything from a single container on port 8000.
 
 ---
 
-## Monitoring & Health Checks
+## 1-Click Windows Launch (Local)
 
-Verify your deployment anytime with:
-```bash
-# Check Backend + Neon DB Connectivity
-curl http://localhost:8000/api/health/ready
+```bat
+start-production.bat
 ```
-Expected response:
-```json
-{
-  "status": "READY",
-  "database": {
-    "status": "HEALTHY",
-    "dialect": "postgresql",
-    "latency_ms": 12.4
-  },
-  "version": "1.2.0"
-}
-```
+
+This builds the frontend, verifies DB, and opens both backend (`:8000`) and frontend (`:8443`) in separate terminal windows.

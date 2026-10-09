@@ -66,7 +66,9 @@ export const api = {
     q.append("mode", mode);
     if (datasetName) q.append("dataset_name", datasetName);
 
-    const uploadUrl = `${API_BASE}/api/data/upload?${q.toString()}`;
+    // Use a relative path so the Vite dev proxy (or same-origin production server)
+    // handles routing to port 8000 — avoids ERR_ALPN_NEGOTIATION_FAILED on direct connections.
+    const uploadUrl = `/api/data/upload?${q.toString()}`;
     const res = await fetch(uploadUrl, {
       method: "POST",
       body: formData,
@@ -95,14 +97,33 @@ export const api = {
     fetchJSON<any[]>(withVersion(`/api/dashboard/vendor-distribution?top=${top}`, ver)),
   getDistrictExpenditure: (top = 6, ver?: string) =>
     fetchJSON<any[]>(withVersion(`/api/dashboard/district-expenditure?top=${top}`, ver)),
+  getDistrictRisk: (top = 6, ver?: string) =>
+    fetchJSON<any[]>(withVersion(`/api/dashboard/district-risk?top=${top}`, ver)),
   getCostOverrun: (ver?: string) => fetchJSON<any[]>(withVersion("/api/dashboard/cost-overrun", ver)),
+  getTransactionAnomalies: (limit = 15, ver?: string) =>
+    fetchJSON<any[]>(withVersion(`/api/dashboard/transaction-anomalies?limit=${limit}`, ver)),
   getGeoProjects: (ver?: string) => fetchJSON<{ states: any[]; markers: any[] }>(withVersion("/api/dashboard/geo-projects", ver)),
 
   // Projects
+  getDistrictsMetadata: (state?: string, ver?: string) => {
+    const q = new URLSearchParams();
+    if (state && state !== "All States" && state !== "All") q.append("state", state);
+    return fetchJSON<{
+      dataset_version: string;
+      all_india_hierarchy: Record<string, string[]>;
+      all_india_states: string[];
+      all_india_districts: string[];
+      active_dataset_states: string[];
+      active_dataset_districts: string[];
+      total_all_india_districts: number;
+      total_all_india_states: number;
+    }>(withVersion(`/api/projects/districts?${q.toString()}`, ver));
+  },
   listProjects: (params: {
     dataset_version?: string;
     search?: string;
     state?: string;
+    district?: string;
     risk_level?: string;
     status?: string;
     category?: string;
@@ -115,6 +136,7 @@ export const api = {
     q.append("dataset_version", params.dataset_version || currentDatasetVersion);
     if (params.search) q.append("search", params.search);
     if (params.state) q.append("state", params.state);
+    if (params.district) q.append("district", params.district);
     if (params.risk_level) q.append("risk_level", params.risk_level);
     if (params.status) q.append("status", params.status);
     if (params.category) q.append("category", params.category);
@@ -176,6 +198,8 @@ export const api = {
     date_from?: string;
     date_to?: string;
     anomaly_type?: string;
+    state?: string;
+    district?: string;
   }) =>
     fetchJSON<any>("/api/ai/analyze", {
       method: "POST",
@@ -183,8 +207,13 @@ export const api = {
     }),
   getAIRunStatus: (runId: string) => fetchJSON<any>(`/api/ai/runs/${encodeURIComponent(runId)}`),
   getAIModelStatus: (ver?: string) => fetchJSON<any>(withVersion("/api/ai/model-status", ver)),
-  getAIAnomalies: (filterType = "All Types", ver?: string) =>
-    fetchJSON<any[]>(withVersion(`/api/ai/anomalies?filter_type=${encodeURIComponent(filterType)}`, ver)),
+  getAIAnomalies: (filterType = "All Types", state?: string, district?: string, ver?: string) => {
+    const q = new URLSearchParams();
+    if (filterType) q.append("filter_type", filterType);
+    if (state && state !== "All States" && state !== "All") q.append("state", state);
+    if (district && district !== "All Districts" && district !== "All") q.append("district", district);
+    return fetchJSON<any[]>(withVersion(`/api/ai/anomalies?${q.toString()}`, ver));
+  },
 
   // Vendors & Beneficiaries
   listVendors: (search?: string, ver?: string) => {

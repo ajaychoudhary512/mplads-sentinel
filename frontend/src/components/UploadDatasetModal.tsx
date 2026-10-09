@@ -73,13 +73,30 @@ export function UploadDatasetModal({ isOpen, onClose, onCompleteNavigate }: Uplo
   const handleFiles = (files: FileList | null) => {
     if (!files) return;
     const valid: File[] = [];
+    const rejected: string[] = [];
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
-      if (f.name.endsWith(".xlsx") || f.name.endsWith(".xls") || f.name.endsWith(".csv")) {
+      if (f.name.toLowerCase().endsWith(".xlsx") || f.name.toLowerCase().endsWith(".xls") || f.name.toLowerCase().endsWith(".csv")) {
         valid.push(f);
+      } else {
+        rejected.push(f.name);
       }
     }
-    setSelectedFiles((prev) => [...prev, ...valid]);
+    setSelectedFiles((prev) => {
+      const existing = new Set(prev.map((file) => `${file.name}:${file.size}:${file.lastModified}`));
+      const unique = valid.filter((file) => {
+        const key = `${file.name}:${file.size}:${file.lastModified}`;
+        if (existing.has(key)) return false;
+        existing.add(key);
+        return true;
+      });
+      return [...prev, ...unique];
+    });
+    setErrorMessage(rejected.length
+      ? `Only Excel (.xlsx, .xls) and CSV files can be uploaded. Skipped: ${rejected.join(", ")}`
+      : "");
+    // Permit choosing the same file again after removing it from the list.
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const removeFile = (idx: number) => {
@@ -98,7 +115,10 @@ export function UploadDatasetModal({ isOpen, onClose, onCompleteNavigate }: Uplo
     setValidating(true);
     setErrorMessage("");
     try {
-      const res = await api.uploadDataset(selectedFiles, mode, datasetName);
+      const res = await api.uploadDataset(selectedFiles, mode, datasetName.trim() || undefined);
+      if (res.validation_report?.batch_status === "FAILED") {
+        throw new Error("One or more files could not be read. Remove the affected file and try again.");
+      }
       setUploadResult(res);
       setStage("PREVIEW");
     } catch (err: any) {

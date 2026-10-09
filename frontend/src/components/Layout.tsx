@@ -22,8 +22,6 @@ const NAV_ITEMS = [
   { id: "vendors", label: "Vendors & Beneficiaries", icon: "🏢" },
   { id: "reports", label: "Reports", icon: "📊" },
   { id: "audit-trail", label: "Audit Trail", icon: "📜" },
-  { id: "notifications", label: "Notifications", icon: "🔔" },
-  { id: "settings", label: "Administration", icon: "⚙" },
 ];
 
 export function Layout({ currentPage, onNavigate, onLogout, children, breadcrumb }: LayoutProps) {
@@ -275,9 +273,6 @@ export function Layout({ currentPage, onNavigate, onLogout, children, breadcrumb
                 >
                   <span style={{ fontSize: "14px", width: "20px", textAlign: "center", flexShrink: 0 }}>{item.icon}</span>
                   {!sidebarCollapsed && <span style={{ whiteSpace: "nowrap", fontWeight: active ? 600 : 400 }}>{item.label}</span>}
-                  {!sidebarCollapsed && item.id === "notifications" && (
-                    <span style={{ marginLeft: "auto", background: "#DC2626", color: "#fff", borderRadius: "10px", padding: "1px 6px", fontSize: "10px", fontWeight: 700 }}>3</span>
-                  )}
                   {!sidebarCollapsed && item.id === "fraud-alerts" && (
                     <span style={{ marginLeft: "auto", background: "#EA580C", color: "#fff", borderRadius: "10px", padding: "1px 6px", fontSize: "10px", fontWeight: 700 }}>8</span>
                   )}

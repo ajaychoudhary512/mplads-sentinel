@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { api } from "../services/api";
 import { useDataset } from "../context/DatasetContext";
+import { ALL_INDIA_STATES, ALL_INDIA_STATES_AND_DISTRICTS, getDistrictsForState } from "../data/indiaDistricts";
 
 export function Reports() {
   const { activeVersion, activeMetadata } = useDataset();
@@ -8,7 +9,28 @@ export function Reports() {
   const [generated, setGenerated] = useState(false);
   const [reportType, setReportType] = useState("AI Risk Report");
   const [reportResult, setReportResult] = useState<any>(null);
-  const [form, setForm] = useState({ district: "All Districts", constituency: "All", dateFrom: "2026-04-01", dateTo: "2026-08-27", riskCategory: "All", financialYear: "2025-26" });
+  const [form, setForm] = useState({
+    state: "All States",
+    district: "All Districts",
+    constituency: "All",
+    dateFrom: "2026-04-01",
+    dateTo: "2026-08-27",
+    riskCategory: "All",
+    financialYear: "2025-26"
+  });
+
+  const availableDistricts = useMemo(() => {
+    return getDistrictsForState(form.state);
+  }, [form.state]);
+
+  const handleStateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newState = e.target.value;
+    setForm(prev => ({
+      ...prev,
+      state: newState,
+      district: "All Districts"
+    }));
+  };
 
   const handleGenerate = async () => {
     setGenerating(true);
@@ -45,7 +67,7 @@ export function Reports() {
       <div style={{ marginBottom: "16px" }}>
         <h1 style={{ fontSize: "18px", fontWeight: 700, color: "#1B3A6B", margin: 0 }}>Report Generation</h1>
         <div style={{ fontSize: "12px", color: "#6B7480", marginTop: "2px" }}>
-          Generate and export data-driven analytical reports for MPLAD scheme monitoring | Dataset: <strong>{activeMetadata?.dataset_name || activeVersion}</strong> ({activeMetadata?.valid_row_count ? `${activeMetadata.valid_row_count.toLocaleString()} rows` : activeVersion})
+          Generate and export data-driven analytical reports for MPLAD scheme monitoring | Dataset: <strong>{activeMetadata?.dataset_name || activeVersion}</strong> ({activeMetadata?.valid_row_count ? `${activeMetadata.valid_row_count.toLocaleString()} rows` : activeVersion}) · <strong>All India (36 States & UTs, 780+ Districts)</strong>
         </div>
       </div>
 
@@ -61,19 +83,49 @@ export function Reports() {
             </select>
           </div>
 
-          {[
-            { label: "Financial Year", key: "financialYear", options: ["2025-26", "2024-25", "2023-24"], type: "select" },
-            { label: "District / State", key: "district", options: ["All Districts", "Rajasthan", "Maharashtra", "Uttar Pradesh", "Kerala", "Telangana", "Madhya Pradesh", "Gujarat", "Punjab"], type: "select" },
-            { label: "Constituency", key: "constituency", options: ["All", "Alwar", "Bikaner", "Barmer", "Nagpur", "Ernakulam", "Hyderabad", "Jaipur"], type: "select" },
-            { label: "Risk Category", key: "riskCategory", options: ["All", "Critical", "High", "Medium", "Low"], type: "select" },
-          ].map(f => (
-            <div key={f.key} style={{ marginBottom: "12px" }}>
-              <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#3A4050", marginBottom: "5px" }}>{f.label}</label>
-              <select value={(form as any)[f.key]} onChange={e => setForm(prev => ({ ...prev, [f.key]: e.target.value }))} style={{ width: "100%", padding: "7px 10px", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", background: "#fff" }}>
-                {f.options.map(o => <option key={o}>{o}</option>)}
-              </select>
-            </div>
-          ))}
+          <div style={{ marginBottom: "12px" }}>
+            <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#3A4050", marginBottom: "5px" }}>Financial Year</label>
+            <select value={form.financialYear} onChange={e => setForm(prev => ({ ...prev, financialYear: e.target.value }))} style={{ width: "100%", padding: "7px 10px", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", background: "#fff" }}>
+              {["2025-26", "2024-25", "2023-24"].map(o => <option key={o}>{o}</option>)}
+            </select>
+          </div>
+
+          <div style={{ marginBottom: "12px" }}>
+            <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#3A4050", marginBottom: "5px" }}>State / UT (All 36)</label>
+            <select value={form.state} onChange={handleStateChange} style={{ width: "100%", padding: "7px 10px", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", background: "#fff" }}>
+              <option value="All States">All States / UTs (36)</option>
+              {ALL_INDIA_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+
+          <div style={{ marginBottom: "12px" }}>
+            <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#3A4050", marginBottom: "5px" }}>
+              District {form.state !== "All States" ? `(${availableDistricts.length})` : "(780+ All India)"}
+            </label>
+            <select value={form.district} onChange={e => setForm(prev => ({ ...prev, district: e.target.value }))} style={{ width: "100%", padding: "7px 10px", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", background: "#fff" }}>
+              <option value="All Districts">All Districts ({form.state !== "All States" ? availableDistricts.length : "780+"})</option>
+              {form.state === "All States" ? (
+                Object.entries(ALL_INDIA_STATES_AND_DISTRICTS).map(([st, dists]) => (
+                  <optgroup key={st} label={st}>
+                    {dists.map(d => (
+                      <option key={`${st}-${d}`} value={d}>{d}</option>
+                    ))}
+                  </optgroup>
+                ))
+              ) : (
+                availableDistricts.map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))
+              )}
+            </select>
+          </div>
+
+          <div style={{ marginBottom: "12px" }}>
+            <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#3A4050", marginBottom: "5px" }}>Risk Category</label>
+            <select value={form.riskCategory} onChange={e => setForm(prev => ({ ...prev, riskCategory: e.target.value }))} style={{ width: "100%", padding: "7px 10px", border: "1px solid #D0D5DD", borderRadius: "3px", fontSize: "12px", background: "#fff" }}>
+              {["All", "Critical", "High", "Medium", "Low"].map(o => <option key={o}>{o}</option>)}
+            </select>
+          </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "16px" }}>
             <div>

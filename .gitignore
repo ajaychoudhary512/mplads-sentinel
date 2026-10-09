@@ -2,7 +2,7 @@ node_modules/
 dist/
 build/
 .cache/
-.env*
+.env
 .vite/
 vite.config.*.timestamp-*
 *.tsbuildinfo
@@ -17,15 +17,26 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+
+# Local SQLite database (not committed — each environment has its own)
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
+
+# Uploaded files (runtime generated, not committed)
 data/uploads/
 data/sample_test_batch.csv
-data/processed/*_V*.csv
+
+# Intermediate processed CSVs — keep V1 baseline, exclude user-uploaded versions
+data/processed/*_V[2-9].csv
+data/processed/*_V[1-9][0-9].csv
 
 # Platform-managed agentplat state
 /.plugins/
 /.opencode-skills/
 
+# Python virtual environments
+.venv/
+venv/
+env/

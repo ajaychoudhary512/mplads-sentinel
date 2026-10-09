@@ -95,20 +95,30 @@ def read_file_safely(file_path: str) -> pd.DataFrame:
 
     ext = path.suffix.lower()
     if ext in (".xlsx", ".xls"):
-        # Use calamine for fast, error-tolerant excel parsing
-        try:
-            raw = pd.read_excel(path, engine="calamine", header=None)
-        except Exception as e:
-            logger.warning(f"Calamity reading {path} via calamine failed ({e}), falling back to openpyxl/default")
-            raw = pd.read_excel(path, header=None)
+        # Try calamine first (fast, error-tolerant), then fall back to xlrd / openpyxl
+        raw = None
+        engines_to_try = ["calamine"]
+        if ext == ".xls":
+            engines_to_try.append("xlrd")
+        else:
+            engines_to_try.append("openpyxl")
+        for eng in engines_to_try:
+            try:
+                raw = pd.read_excel(path, engine=eng, header=None)
+                break
+            except Exception as e:
+                logger.warning(f"Engine '{eng}' failed to read {path}: {e}")
+        if raw is None:
+            raise ValueError(f"All Excel engines failed to read {path.name}. The file may be corrupted or password-protected.")
     elif ext == ".csv":
+        raw = None
         for enc in ("utf-8", "utf-8-sig", "latin1", "cp1252"):
             try:
                 raw = pd.read_csv(path, header=None, encoding=enc, low_memory=False)
                 break
             except Exception:
                 continue
-        else:
+        if raw is None:
             raise ValueError(f"Unable to read CSV with standard encodings: {file_path}")
     else:
         raise ValueError(f"Unsupported file format: {ext}")
@@ -116,12 +126,23 @@ def read_file_safely(file_path: str) -> pd.DataFrame:
     # Remove completely empty rows & cols
     raw = raw.dropna(how="all").dropna(axis=1, how="all")
 
+    if raw.empty:
+        raise ValueError(f"File '{path.name}' contains no data after removing empty rows and columns.")
+
     # Detect header row
     header_idx = find_header_row(raw)
     headers = [normalize_text(h) for h in raw.iloc[header_idx].values]
-    
+
+    # Guard: header must not be the very last row
+    if header_idx + 1 >= len(raw):
+        raise ValueError(
+            f"File '{path.name}' appears to contain only a header row (row {header_idx}) with no data rows below it."
+        )
+
     # Slice dataframe from row after header
     data = raw.iloc[header_idx + 1:].copy()
+    # Reset positional index so iloc works correctly after slicing
+    data = data.reset_index(drop=True)
     data.columns = [h if h else f"col_{i}" for i, h in enumerate(headers)]
     data = data.dropna(how="all")
     return data

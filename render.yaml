@@ -1,0 +1,72 @@
+# =============================================================================
+# MPLADS Sentinel (e-drishti) — Render.com Deployment Blueprint
+# =============================================================================
+# Deployment: Vercel (frontend) + Render (backend API)
+#
+# BEFORE DEPLOYING:
+#   1. Set DATABASE_URL in Render dashboard (your Neon PostgreSQL connection string)
+#   2. Set SECRET_KEY in Render dashboard (a random 32+ char string)
+#   3. Set CORS_ORIGINS to your Vercel frontend URL (e.g. https://your-app.vercel.app)
+# =============================================================================
+
+services:
+  # ─── Backend API Service ─────────────────────────────────────────────────────
+  - type: web
+    name: mplads-sentinel-api
+    runtime: python
+    region: oregon            # Change to: singapore, frankfurt, ohio as needed
+    plan: free                # Use 'starter' or higher for no sleep + more RAM
+
+    # Build: install all Python dependencies
+    buildCommand: >
+      pip install --upgrade pip &&
+      pip install -r requirements.txt
+
+    # Start: gunicorn with UvicornWorker (production-grade async)
+    # WEB_CONCURRENCY=1 on free tier (512 MB RAM), increase on paid plans
+    startCommand: >
+      gunicorn backend.main:app
+      --worker-class uvicorn.workers.UvicornWorker
+      --workers ${WEB_CONCURRENCY:-1}
+      --bind 0.0.0.0:${PORT}
+      --timeout 120
+      --graceful-timeout 30
+      --access-logfile -
+      --error-logfile -
+
+    healthCheckPath: /api/health/live
+
+    envVars:
+      # ── Required secrets (set in Render Dashboard, never commit) ─────────────
+      - key: DATABASE_URL
+        sync: false           # Must be set manually in Render Dashboard
+
+      - key: SECRET_KEY
+        sync: false           # Must be set manually in Render Dashboard
+
+      # ── Application settings ─────────────────────────────────────────────────
+      - key: ENVIRONMENT
+        value: production
+
+      - key: DEBUG
+        value: "false"
+
+      - key: LOG_LEVEL
+        value: INFO
+
+      - key: WEB_CONCURRENCY
+        value: "1"            # Safe for Render free tier (512 MB RAM)
+
+      - key: AUTO_SEED
+        value: "false"        # DB is pre-seeded via migrate_to_neon.py; skip on startup
+
+      - key: MAX_UPLOAD_SIZE_MB
+        value: "100"
+
+      - key: UPLOAD_DIR
+        value: data/uploads
+
+      # ── CORS: replace with your actual Vercel frontend URL ───────────────────
+      # Example: https://mplads-sentinel.vercel.app
+      - key: CORS_ORIGINS
+        sync: false           # Must be set manually in Render Dashboard

@@ -1,9 +1,11 @@
 import time
 import logging
+from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from backend.config import settings
 from backend.db.database import engine, Base, check_db_health
@@ -111,6 +113,35 @@ app.include_router(vendors.router)
 app.include_router(reports.router)
 app.include_router(audit.router)
 app.include_router(data_upload.router)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Static Frontend Serving (Production: Render single-service mode)
+# Mounts built React frontend under /app/*. Must come AFTER all /api/* routers.
+# Gracefully skipped in dev if frontend/dist has not been built yet.
+# ─────────────────────────────────────────────────────────────────────────────
+_FRONTEND_DIST = Path("frontend/dist")
+if _FRONTEND_DIST.exists() and _FRONTEND_DIST.is_dir():
+    app.mount("/assets", StaticFiles(directory=str(_FRONTEND_DIST / "assets")), name="assets")
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon():
+        fav = _FRONTEND_DIST / "favicon.ico"
+        if fav.exists():
+            return FileResponse(str(fav))
+        return JSONResponse(status_code=204, content={})
+
+    # SPA catch-all — serves index.html for all non-API routes (React Router support)
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa_fallback(full_path: str):
+        index = _FRONTEND_DIST / "index.html"
+        if index.exists():
+            return FileResponse(str(index))
+        return JSONResponse(status_code=404, content={"detail": "Frontend not built. Run: npm --prefix frontend run build"})
+
+    logger.info(f"Serving built frontend from: {_FRONTEND_DIST.resolve()}")
+else:
+    logger.info("frontend/dist not found — skipping static file serving (dev mode).")
 
 
 # Health & Readiness Probes

@@ -28,17 +28,25 @@ def generate_report(payload: dict = Body(...), db: Session = Depends(get_db)):
     ver = get_effective_version(dataset_version, db)
 
     report_type = payload.get("reportType", "AI Risk Report")
+    state = payload.get("state")
     district = payload.get("district", "All Districts")
     constituency = payload.get("constituency", "All")
     risk_category = payload.get("riskCategory", "All")
     financial_year = payload.get("financialYear", "2025-26")
 
     query = db.query(Project).filter(Project.dataset_version == ver)
-    if district and district != "All Districts":
-        query = query.filter(Project.state.ilike(f"%{district}%") | Project.constituency.ilike(f"%{district}%"))
-    if constituency and constituency != "All":
-        query = query.filter(Project.constituency.ilike(f"%{constituency}%"))
-    if risk_category and risk_category != "All":
+    if state and state not in ("All", "All States"):
+        query = query.filter(Project.state.ilike(f"%{state.strip()}%"))
+    if district and district not in ("All", "All Districts"):
+        d_clean = district.strip()
+        query = query.filter(
+            Project.state.ilike(f"%{d_clean}%") |
+            Project.constituency.ilike(f"%{d_clean}%") |
+            Project.ida.ilike(f"%{d_clean}%")
+        )
+    if constituency and constituency not in ("All", "All Constituencies"):
+        query = query.filter(Project.constituency.ilike(f"%{constituency.strip()}%"))
+    if risk_category and risk_category not in ("All", "All Risk Categories"):
         query = query.filter(Project.risk_category == risk_category)
 
     total_projects = query.count()

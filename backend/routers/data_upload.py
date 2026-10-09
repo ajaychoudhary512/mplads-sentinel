@@ -7,6 +7,7 @@ from fastapi import APIRouter, UploadFile, File, BackgroundTasks, HTTPException,
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
+from backend.config import settings
 from backend.db.database import get_db
 from backend.db.models import DatasetVersion, AuditLog, Project
 from data_pipeline.ingestion.uploader import DatasetValidator
@@ -37,25 +38,56 @@ async def upload_dataset_files(
     db: Session = Depends(get_db)
 ):
     """Uploads single or multiple Excel/CSV files, performs content-based schema auto-classification, and generates validation report."""
+    if len(files) > 12:
+        raise HTTPException(status_code=400, detail="Upload at most 12 files in one batch.")
+
+    filenames = [file.filename for file in files if file.filename]
+    duplicate_names = {name for name in filenames if filenames.count(name) > 1}
+    if duplicate_names:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Duplicate file names are not allowed: {', '.join(sorted(duplicate_names))}"
+        )
+
+    max_upload_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
     upload_id = f"UPL-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
     upload_dir = Path(f"data/uploads/{upload_id}")
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     saved_file_paths = []
-    for file in files:
-        if not file.filename.lower().endswith((".xlsx", ".xls", ".csv")):
-            continue
-        dest_path = upload_dir / file.filename
-        with open(dest_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        saved_file_paths.append(dest_path)
+    total_upload_bytes = 0
+    try:
+        for file in files:
+            if not file.filename or not file.filename.lower().endswith((".xlsx", ".xls", ".csv")):
+                continue
+            dest_path = upload_dir / Path(file.filename).name
+            with open(dest_path, "wb") as buffer:
+                while chunk := await file.read(1024 * 1024):
+                    total_upload_bytes += len(chunk)
+                    if total_upload_bytes > max_upload_bytes:
+                        raise HTTPException(
+                            status_code=413,
+                            detail=f"Upload exceeds the {settings.MAX_UPLOAD_SIZE_MB} MB batch limit."
+                        )
+                    buffer.write(chunk)
+            saved_file_paths.append(dest_path)
 
-    if not saved_file_paths:
-        raise HTTPException(status_code=400, detail="No valid .xlsx, .xls, or .csv files uploaded")
+        if not saved_file_paths:
+            raise HTTPException(status_code=400, detail="No valid .xlsx, .xls, or .csv files uploaded")
 
-    # Run multi-file validation engine
-    validator = DatasetValidator()
-    val_report = validator.validate_multi_files(saved_file_paths)
+        val_report = DatasetValidator().validate_multi_files(saved_file_paths)
+        if val_report["batch_status"] == "FAILED":
+            failed_files = [report["filename"] for report in val_report["files"] if report["status"] == "ERROR"]
+            raise HTTPException(
+                status_code=422,
+                detail=f"Could not read: {', '.join(failed_files)}. Please upload valid Excel or CSV files."
+            )
+    except Exception:
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        raise
+    finally:
+        for file in files:
+            await file.close()
 
     next_version = get_next_version_id(db)
     final_name = dataset_name or f"MPLAD Dataset {next_version} ({datetime.now().strftime('%B %Y')})"

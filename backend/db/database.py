@@ -9,7 +9,11 @@ logger = logging.getLogger("backend.db")
 DB_PATH = Path("data/mplad_sentinel.db")
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DB_PATH.as_posix()}")
+try:
+    from backend.config import settings
+    DATABASE_URL = settings.DATABASE_URL
+except Exception:
+    DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DB_PATH.as_posix()}")
 
 # Auto-normalize postgres:// to postgresql:// for SQLAlchemy 2.0 (common in Neon/Render/Heroku URLs)
 if DATABASE_URL.startswith("postgres://"):

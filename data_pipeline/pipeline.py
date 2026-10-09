@@ -114,7 +114,9 @@ class MPLADDataPipeline:
             # 4. ML Anomaly Inference & Calibration
             logger.info("[STAGE] ML_ANALYSIS")
             notify("ML_ANALYSIS: Running Isolation Forest & LOF Scoring", 70)
-            self.ml_engine.load_models()
+            # The anomaly models are fitted against this upload inside
+            # fit_and_score. Loading a previous cohort's model would make
+            # scores depend on stale population statistics.
             master_df = self.ml_engine.fit_and_score(master_df)
 
             # 5. Risk Scoring & Summary
@@ -193,9 +195,17 @@ class MPLADDataPipeline:
             db.commit()
 
             # 2. Insert Projects
+            m_clean = master_df.copy()
+            date_cols = ["recommended_date", "sanction_date", "completion_date", "expenditure_date"]
+            for col in date_cols:
+                if col in m_clean.columns:
+                    dt_series = pd.to_datetime(m_clean[col], errors='coerce')
+                    m_clean[col] = dt_series.dt.to_pydatetime()
+                    m_clean[col] = m_clean[col].astype(object).where(dt_series.notna(), None)
+            
+            m_clean = m_clean.replace({np.nan: None})
             p_records = []
-            m_clean = master_df.replace({np.nan: None})
-            for _, row in m_clean.iterrows():
+            for row in m_clean.to_dict('records'):
                 p_obj = Project(
                     work_id=str(row["work_id"]),
                     dataset_version=target_version,
@@ -216,10 +226,10 @@ class MPLADDataPipeline:
                     cost_deviation_pct=float(row["cost_deviation_pct"]) if row.get("cost_deviation_pct") is not None else None,
                     utilization_pct=float(row["utilization_pct"]) if row.get("utilization_pct") is not None else None,
                     remaining_sanction_amount=float(row["remaining_sanction_amount"]) if row.get("remaining_sanction_amount") is not None else None,
-                    recommended_date=pd.to_datetime(row.get("recommended_date")).to_pydatetime() if pd.notna(row.get("recommended_date")) else None,
-                    sanction_date=pd.to_datetime(row.get("sanction_date")).to_pydatetime() if pd.notna(row.get("sanction_date")) else None,
-                    completion_date=pd.to_datetime(row.get("completion_date")).to_pydatetime() if pd.notna(row.get("completion_date")) else None,
-                    expenditure_date=pd.to_datetime(row.get("expenditure_date")).to_pydatetime() if pd.notna(row.get("expenditure_date")) else None,
+                    recommended_date=row.get("recommended_date"),
+                    sanction_date=row.get("sanction_date"),
+                    completion_date=row.get("completion_date"),
+                    expenditure_date=row.get("expenditure_date"),
                     recommendation_to_sanction_days=float(row["recommendation_to_sanction_days"]) if row.get("recommendation_to_sanction_days") is not None else None,
                     project_duration_days=float(row["project_duration_days"]) if row.get("project_duration_days") is not None else None,
                     work_status=str(row.get("work_status") or ""),
@@ -254,16 +264,28 @@ class MPLADDataPipeline:
 
             # 3. Insert Expenditures
             if exp_df is not None and not exp_df.empty:
-                tx_clean = exp_df.replace({np.nan: None})
+                tx_clean = exp_df.copy()
+                date_cols_exp = ["expenditure_date", "date"]
+                for col in date_cols_exp:
+                    if col in tx_clean.columns:
+                        dt_series = pd.to_datetime(tx_clean[col], errors='coerce')
+                        tx_clean[col] = dt_series.dt.to_pydatetime()
+                        tx_clean[col] = tx_clean[col].astype(object).where(dt_series.notna(), None)
+                tx_clean = tx_clean.replace({np.nan: None})
+                
                 tx_records = []
-                for _, r in tx_clean.iterrows():
+                for r in tx_clean.to_dict('records'):
+                    dt_val = r.get("expenditure_date")
+                    if dt_val is None:
+                        dt_val = r.get("date")
+                    
                     tx_obj = ExpenditureTransaction(
                         transaction_id=str(r.get("transaction_id", f"TXN-{len(tx_records)+1:06d}")),
                         work_id=str(r["work_id"]),
                         dataset_version=target_version,
                         vendor_name=str(r.get("vendor_name") or ""),
                         amount=float(r.get("fund_disbursed_amount") or r.get("amount") or 0.0),
-                        date=pd.to_datetime(r.get("expenditure_date") or r.get("date")).to_pydatetime() if pd.notna(r.get("expenditure_date") or r.get("date")) else None,
+                        date=dt_val,
                         expected_range="Normal",
                         deviation_percent=0.0,
                         ai_flag="LOW",
@@ -277,7 +299,7 @@ class MPLADDataPipeline:
             alerts_df = master_df[master_df["risk_category"].isin(["High", "Critical"])].copy()
             if not alerts_df.empty:
                 alt_records = []
-                for i, (_, r) in enumerate(alerts_df.iterrows(), 1):
+                for i, r in enumerate(alerts_df.to_dict('records'), 1):
                     alt_obj = Alert(
                         alert_id=f"ALT-{target_version}-{i:04d}",
                         work_id=str(r["work_id"]),
@@ -306,7 +328,7 @@ class MPLADDataPipeline:
                     avg_risk=("risk_score", "mean")
                 ).reset_index()
                 v_records = []
-                for i, r in v_dist.iterrows():
+                for i, r in enumerate(v_dist.to_dict('records')):
                     v_obj = Vendor(
                         vendor_name=str(r["vendor_name"]),
                         vendor_key=str(r["vendor_name"]).upper(),
@@ -332,7 +354,7 @@ class MPLADDataPipeline:
                 avg_risk_score=("risk_score", "mean")
             ).reset_index()
             mp_records = []
-            for _, r in mp_dist.iterrows():
+            for r in mp_dist.to_dict('records'):
                 mp_obj = MP(
                     mp_key=f"{r.get('state')}_{r.get('mp_name')}".upper(),
                     mp_name=str(r.get("mp_name") or ""),

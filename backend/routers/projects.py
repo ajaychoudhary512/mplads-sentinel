@@ -5,6 +5,12 @@ from sqlalchemy import desc, asc, or_
 
 from backend.db.database import get_db
 from backend.db.models import Project, ExpenditureTransaction, Alert, AuditLog, DatasetVersion
+from backend.data.india_districts import (
+    INDIA_STATES_AND_DISTRICTS,
+    get_all_states,
+    get_all_districts,
+    get_districts_by_state
+)
 
 router = APIRouter(prefix="/api/projects", tags=["Projects"])
 
@@ -20,11 +26,60 @@ def get_effective_version(dataset_version: Optional[str], db: Session) -> str:
     return "V1"
 
 
+@router.get("/districts")
+def get_districts_metadata(
+    dataset_version: Optional[str] = Query(None),
+    state: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """Returns All-India master districts and states alongside active dataset districts."""
+    ver = get_effective_version(dataset_version, db)
+    
+    # Active dataset distinct values
+    db_states_q = db.query(Project.state).distinct().filter(
+        Project.dataset_version == ver,
+        Project.state != "",
+        Project.state != None
+    ).order_by(Project.state)
+    
+    if state and state not in ("All", "All States"):
+        db_districts_q = db.query(Project.constituency).distinct().filter(
+            Project.dataset_version == ver,
+            Project.state.ilike(f"%{state}%"),
+            Project.constituency != "",
+            Project.constituency != None
+        ).order_by(Project.constituency)
+    else:
+        db_districts_q = db.query(Project.constituency).distinct().filter(
+            Project.dataset_version == ver,
+            Project.constituency != "",
+            Project.constituency != None
+        ).order_by(Project.constituency)
+
+    active_states = [s[0] for s in db_states_q.all() if s[0]]
+    active_districts = [d[0] for d in db_districts_q.all() if d[0]]
+
+    # All-India filtered districts for given state
+    all_india_filtered = get_districts_by_state(state) if state else get_all_districts()
+
+    return {
+        "dataset_version": ver,
+        "all_india_hierarchy": INDIA_STATES_AND_DISTRICTS,
+        "all_india_states": get_all_states(),
+        "all_india_districts": all_india_filtered,
+        "active_dataset_states": active_states,
+        "active_dataset_districts": active_districts,
+        "total_all_india_districts": len(get_all_districts()),
+        "total_all_india_states": len(get_all_states())
+    }
+
+
 @router.get("")
 def list_projects(
     dataset_version: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     state: Optional[str] = Query(None),
+    district: Optional[str] = Query(None),
     risk_level: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     category: Optional[str] = Query(None),
@@ -51,16 +106,26 @@ def list_projects(
             )
         )
 
-    if state and state != "All States":
-        query = query.filter(Project.state == state)
+    if state and state not in ("All States", "All"):
+        query = query.filter(Project.state.ilike(f"%{state}%"))
 
-    if risk_level and risk_level != "All Risk Levels" and risk_level != "All":
+    if district and district not in ("All Districts", "All"):
+        d_clean = district.strip()
+        query = query.filter(
+            or_(
+                Project.constituency.ilike(f"%{d_clean}%"),
+                Project.ida.ilike(f"%{d_clean}%"),
+                Project.state.ilike(f"%{d_clean}%")
+            )
+        )
+
+    if risk_level and risk_level not in ("All Risk Levels", "All"):
         query = query.filter(Project.risk_category == risk_level)
 
-    if status and status != "All Statuses" and status != "All":
+    if status and status not in ("All Statuses", "All"):
         query = query.filter(Project.dashboard_status == status)
 
-    if category and category != "All Categories" and category != "All":
+    if category and category not in ("All Categories", "All"):
         query = query.filter(Project.work_category == category)
 
     # Sorting

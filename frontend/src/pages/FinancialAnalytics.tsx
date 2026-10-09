@@ -5,7 +5,15 @@ import { useDataset } from "../context/DatasetContext";
 
 const PIE_COLORS = ["#1B3A6B", "#2A5298", "#86AFDF", "#EA580C", "#D97706", "#9AA3B0"];
 
-export function FinancialAnalytics() {
+function ChartPlaceholder({ message }: { message: string }) {
+  return <div style={{ height: "200px", display: "grid", placeItems: "center", border: "1px dashed #CBD5E1", borderRadius: "4px", color: "#64748B", fontSize: "12px", background: "#F8FAFC", textAlign: "center", padding: "12px" }}>{message}</div>;
+}
+
+interface FinancialAnalyticsProps {
+  onNavigate?: (page: any, data?: any) => void;
+}
+
+export function FinancialAnalytics({ onNavigate }: FinancialAnalyticsProps) {
   const { activeVersion, activeMetadata } = useDataset();
 
   const [summary, setSummary] = useState<any>(null);
@@ -21,13 +29,13 @@ export function FinancialAnalytics() {
     async function loadFinancials() {
       setLoading(true);
       try {
-        const [sum, fund, vendors, dists, overruns, alertsRes] = await Promise.all([
+        const [sum, fund, vendors, dists, overruns, txns] = await Promise.all([
           api.getDashboardSummary(activeVersion).catch(() => null),
           api.getFundUtilization("monthly", activeVersion).catch(() => null),
           api.getVendorDistribution(6, activeVersion).catch(() => null),
           api.getDistrictExpenditure(6, activeVersion).catch(() => null),
           api.getCostOverrun(activeVersion).catch(() => null),
-          api.listAlerts({ dataset_version: activeVersion, severity: "Critical" }).catch(() => null),
+          api.getTransactionAnomalies ? api.getTransactionAnomalies(10, activeVersion).catch(() => null) : null,
         ]);
 
         if (!isMounted) return;
@@ -37,19 +45,24 @@ export function FinancialAnalytics() {
         if (dists && dists.length) setDistrictExp(dists);
         if (overruns && overruns.length) setOverrunData(overruns);
 
-        // Map alerts or projects to transaction anomaly report
-        if (alertsRes && alertsRes.items) {
-          const txs = alertsRes.items.slice(0, 8).map((a: any, idx: number) => ({
-            id: `TXN-${2026}-${(4800 + idx).toString()}`,
-            projectId: a.project,
-            vendor: a.projectName ? a.projectName.slice(0, 24) : "Contractor",
-            amount: a.amount.replace("₹", "").replace(" Lakh", "L").replace(" Cr", " Cr"),
-            date: a.date,
-            expectedRange: "₹5.0L - ₹15.0L",
-            deviation: `+${a.confidence}%`,
-            flag: a.severity.toUpperCase(),
-          }));
-          setTransactions(txs);
+        if (txns && txns.length > 0) {
+          setTransactions(txns);
+        } else {
+          // Fallback to high severity alerts
+          const alertsRes = await api.listAlerts({ dataset_version: activeVersion, severity: "All" }).catch(() => null);
+          if (alertsRes && alertsRes.items && alertsRes.items.length > 0) {
+            const fallbackTxs = alertsRes.items.slice(0, 8).map((a: any, idx: number) => ({
+              id: `TXN-2026-${(4800 + idx).toString()}`,
+              projectId: a.project,
+              vendor: a.projectName ? a.projectName.slice(0, 24) : "Contractor",
+              amount: a.amount.replace("₹", "").replace(" Lakh", "L").replace(" Cr", " Cr"),
+              date: a.date || "26 Aug 2026",
+              expectedRange: "₹5.0L - ₹15.0L",
+              deviation: `+${a.confidence || 45}%`,
+              flag: (a.severity || "HIGH").toUpperCase(),
+            }));
+            setTransactions(fallbackTxs);
+          }
         }
       } catch (err) {
         console.error("Failed to load Financial Analytics:", err);
@@ -96,7 +109,7 @@ export function FinancialAnalytics() {
         <div style={{ background: "#fff", border: "1px solid #E2E5EA", borderRadius: "3px", padding: "16px" }}>
           <div style={{ fontSize: "13px", fontWeight: 700, marginBottom: "3px" }}>Monthly Expenditure Trend</div>
           <div style={{ fontSize: "11px", color: "#9AA3B0", marginBottom: "12px" }}>Allocation vs Utilisation by Month | Source: Canonical MPLAD Records</div>
-          <ResponsiveContainer width="100%" height={200}>
+          {monthlyData.length > 0 ? <ResponsiveContainer width="100%" height={200}>
             <LineChart data={monthlyData} margin={{ left: -10, right: 10 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#F0F1F4" />
               <XAxis dataKey="month" tick={{ fontSize: 10 }} />
@@ -106,20 +119,20 @@ export function FinancialAnalytics() {
               <Line type="monotone" dataKey="allocated" name="Allocated" stroke="#1B3A6B" strokeWidth={2} dot={{ r: 3 }} />
               <Line type="monotone" dataKey="utilized" name="Utilised" stroke="#15803D" strokeWidth={2} dot={{ r: 3 }} />
             </LineChart>
-          </ResponsiveContainer>
+          </ResponsiveContainer> : <ChartPlaceholder message="Monthly expenditure data is not available for this dataset." />}
         </div>
 
         <div style={{ background: "#fff", border: "1px solid #E2E5EA", borderRadius: "3px", padding: "16px" }}>
           <div style={{ fontSize: "13px", fontWeight: 700, marginBottom: "3px" }}>Vendor Payment Distribution</div>
           <div style={{ fontSize: "11px", color: "#9AA3B0", marginBottom: "10px" }}>Top vendors by total MPLAD payments</div>
-          <ResponsiveContainer width="100%" height={160}>
+          {vendorPayments.length > 0 ? <ResponsiveContainer width="100%" height={160}>
             <PieChart>
               <Pie data={vendorPayments} cx="50%" cy="50%" outerRadius={70} dataKey="amount" nameKey="vendor">
                 {vendorPayments.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
               </Pie>
               <Tooltip formatter={(v) => [`₹${v} Cr`, ""]} contentStyle={{ fontSize: "11px" }} />
             </PieChart>
-          </ResponsiveContainer>
+          </ResponsiveContainer> : <ChartPlaceholder message="No vendor payment records were supplied." />}
           <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
             {vendorPayments.slice(0, 4).map((v, i) => (
               <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: "10px" }}>
@@ -139,7 +152,7 @@ export function FinancialAnalytics() {
         <div style={{ background: "#fff", border: "1px solid #E2E5EA", borderRadius: "3px", padding: "16px" }}>
           <div style={{ fontSize: "13px", fontWeight: 700, marginBottom: "3px" }}>Constituency / District Expenditure Comparison</div>
           <div style={{ fontSize: "11px", color: "#9AA3B0", marginBottom: "12px" }}>Sanctioned Budget vs Actual Expenditure | Top Regions</div>
-          <ResponsiveContainer width="100%" height={200}>
+          {districtExp.length > 0 ? <ResponsiveContainer width="100%" height={200}>
             <BarChart data={districtExp} margin={{ left: -10, right: 10 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#F0F1F4" />
               <XAxis dataKey="district" tick={{ fontSize: 10 }} />
@@ -149,13 +162,13 @@ export function FinancialAnalytics() {
               <Bar dataKey="budget" name="Budget" fill="#86AFDF" radius={[2,2,0,0]} />
               <Bar dataKey="expenditure" name="Expenditure" fill="#1B3A6B" radius={[2,2,0,0]} />
             </BarChart>
-          </ResponsiveContainer>
+          </ResponsiveContainer> : <ChartPlaceholder message="No district expenditure records were supplied." />}
         </div>
 
         <div style={{ background: "#fff", border: "1px solid #E2E5EA", borderRadius: "3px", padding: "16px" }}>
           <div style={{ fontSize: "13px", fontWeight: 700, marginBottom: "3px" }}>Cost Overrun Analysis by Category</div>
           <div style={{ fontSize: "11px", color: "#9AA3B0", marginBottom: "12px" }}>Projects with cost overrun and average overrun %</div>
-          <ResponsiveContainer width="100%" height={200}>
+          {overrunData.length > 0 ? <ResponsiveContainer width="100%" height={200}>
             <BarChart data={overrunData} margin={{ left: -10, right: 10 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#F0F1F4" />
               <XAxis dataKey="category" tick={{ fontSize: 10 }} />
@@ -166,7 +179,7 @@ export function FinancialAnalytics() {
               <Bar yAxisId="left" dataKey="projects" name="No. of Projects" fill="#EA580C" radius={[2,2,0,0]} />
               <Bar yAxisId="right" dataKey="overrunPct" name="Avg Overrun %" fill="#FCD34D" radius={[2,2,0,0]} />
             </BarChart>
-          </ResponsiveContainer>
+          </ResponsiveContainer> : <ChartPlaceholder message="No cost overruns are recorded for this dataset." />}
         </div>
       </div>
 
@@ -188,7 +201,7 @@ export function FinancialAnalytics() {
             </tr>
           </thead>
           <tbody>
-            {transactions.map((t, i) => (
+            {transactions.length > 0 ? transactions.map((t, i) => (
               <tr key={i} style={{ borderBottom: "1px solid #F0F1F4" }}>
                 <td style={{ padding: "9px 11px", fontFamily: "monospace", fontSize: "11px", color: "#1B3A6B" }}>{t.id}</td>
                 <td style={{ padding: "9px 11px", fontFamily: "monospace", fontSize: "11px", color: "#1B3A6B", fontWeight: 600 }}>{t.projectId}</td>
@@ -207,14 +220,24 @@ export function FinancialAnalytics() {
                   }}>{t.flag}</span>
                 </td>
                 <td style={{ padding: "9px 11px" }}>
-                  <button onClick={() => window.location.hash = "#projects"} style={{ padding: "3px 8px", background: "#EEF2F9", color: "#1B3A6B", border: "1px solid #C8D8F0", borderRadius: "3px", fontSize: "11px", cursor: "pointer" }}>Review</button>
+                  <button
+                    onClick={() => {
+                      if (onNavigate) {
+                        onNavigate("project-detail", { id: t.projectId, name: t.vendor });
+                      } else {
+                        window.location.hash = "#projects";
+                      }
+                    }}
+                    style={{ padding: "3px 8px", background: "#EEF2F9", color: "#1B3A6B", border: "1px solid #C8D8F0", borderRadius: "3px", fontSize: "11px", cursor: "pointer" }}
+                  >
+                    Review
+                  </button>
                 </td>
               </tr>
-            ))}
+            )) : <tr><td colSpan={9} style={{ padding: "28px", textAlign: "center", color: "#64748B" }}>{loading ? "Loading transaction anomalies…" : "No flagged transaction records are available for this dataset."}</td></tr>}
           </tbody>
         </table>
       </div>
     </div>
   );
 }
-
